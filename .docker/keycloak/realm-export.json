@@ -1,0 +1,45 @@
+{
+  "realm": "fleet-monitoring",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "Gestor de flota" },
+      { "name": "driver", "description": "Conductor de vehículo" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "fleet-web-client",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "webOrigins": ["*"],
+      "redirectUris": ["http://localhost:3000/*"],
+      "rootUrl": "http://localhost:3000"
+    },
+    {
+      "clientId": "ingestion-service",
+      "enabled": true,
+      "serviceAccountsEnabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "tu-secreto-muy-seguro"
+    }
+  ],
+  "users": [
+    {
+      "username": "admin_test",
+      "enabled": true,
+      "email": "admin@telemetria.com",
+      "firstName": "Admin",
+      "lastName": "Senior",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["admin"]
+    }
+  ]
+}
