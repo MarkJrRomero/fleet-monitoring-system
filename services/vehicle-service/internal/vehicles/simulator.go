@@ -27,30 +27,56 @@ type simulationStatus struct {
 	LastError     string     `json:"last_error,omitempty"`
 }
 
+type simulationTransmission struct {
+	ID         int64  `json:"id"`
+	VehicleID  string `json:"vehicle_id"`
+	Kind       string `json:"kind"`
+	Result     string `json:"result"`
+	Note       string `json:"note"`
+	StatusCode int    `json:"status_code"`
+	Timestamp  string `json:"timestamp"`
+}
+
 type simulator struct {
 	db               *pgxpool.Pool
 	ingestionBaseURL string
 	client           *http.Client
 
-	mu            sync.RWMutex
-	running       bool
-	selectedCount int
-	tickMS        int
-	requestsSent  int64
-	errorsCount   int64
-	startedAt     time.Time
-	lastError     string
-	cancel        context.CancelFunc
-	motionByID    map[string]motionState
-	batchCursor   int
+	mu             sync.RWMutex
+	running        bool
+	selectedCount  int
+	tickMS         int
+	requestsSent   int64
+	errorsCount    int64
+	startedAt      time.Time
+	lastError      string
+	cancel         context.CancelFunc
+	motionByID     map[string]motionState
+	alertClockByID map[string]time.Time
+	batchCursor    int
+	transmissions  []simulationTransmission
+	traceSeq       int64
 }
 
-const simulationBatchSize = 5
+const (
+	simulationActiveRatio     = 0.80
+	simulationStoppedRatio    = 0.20
+	simulationPanicRatio      = 0.05
+	simulationOverspeedRatio  = 0.10
+	simulationBatchRatio      = 0.20
+	simulationDuplicateRatio  = 0.10
+	simulationMalformedRatio  = 0.05
+	simulationDispatchWorkers = 24
+	maxTraceEntries           = 500
+)
 
 type motionState struct {
-	headingRad   float64
-	speedMps     float64
-	turnRateRadS float64
+	headingRad    float64
+	speedMps      float64
+	turnRateRadS  float64
+	batteryLevel  float64
+	noSignalUntil time.Time
+	unknownUntil  time.Time
 }
 
 type simulationVehicle struct {
@@ -60,11 +86,13 @@ type simulationVehicle struct {
 }
 
 type ingestionGPSPayload struct {
-	VehicleID string  `json:"vehicle_id"`
-	Lat       float64 `json:"lat"`
-	Lng       float64 `json:"lng"`
-	SpeedKmh  float64 `json:"speed_kmh"`
-	Timestamp string  `json:"timestamp"`
+	VehicleID   string  `json:"vehicle_id"`
+	Lat         float64 `json:"lat"`
+	Lng         float64 `json:"lng"`
+	SpeedKmh    float64 `json:"speed_kmh"`
+	Status      string  `json:"status,omitempty"`
+	PanicButton bool    `json:"panic_button,omitempty"`
+	Timestamp   string  `json:"timestamp"`
 }
 
 func NewSimulator(db *pgxpool.Pool, ingestionBaseURL string) *simulator {
@@ -72,9 +100,10 @@ func NewSimulator(db *pgxpool.Pool, ingestionBaseURL string) *simulator {
 		db:               db,
 		ingestionBaseURL: strings.TrimRight(ingestionBaseURL, "/"),
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 8 * time.Second,
 		},
-		motionByID: make(map[string]motionState),
+		motionByID:     make(map[string]motionState),
+		alertClockByID: make(map[string]time.Time),
 	}
 }
 
@@ -85,8 +114,8 @@ func (s *simulator) Start(selectedCount, tickMS int) error {
 	if selectedCount > 5000 {
 		return errors.New("selected_count excede maximo permitido (5000)")
 	}
-	if tickMS < 200 {
-		return errors.New("tick_ms minimo permitido: 200")
+	if tickMS < 120 {
+		return errors.New("tick_ms minimo permitido: 120")
 	}
 
 	s.mu.Lock()
@@ -106,7 +135,10 @@ func (s *simulator) Start(selectedCount, tickMS int) error {
 	s.lastError = ""
 	s.cancel = cancel
 	s.motionByID = make(map[string]motionState)
+	s.alertClockByID = make(map[string]time.Time)
 	s.batchCursor = 0
+	s.transmissions = make([]simulationTransmission, 0, maxTraceEntries)
+	s.traceSeq = 0
 
 	go s.loop(ctx)
 	return nil
@@ -135,14 +167,17 @@ func (s *simulator) ResetState() {
 
 	s.running = false
 	s.selectedCount = 0
-	s.tickMS = 1500
+	s.tickMS = 1000
 	s.requestsSent = 0
 	s.errorsCount = 0
 	s.startedAt = time.Time{}
 	s.lastError = ""
 	s.cancel = nil
 	s.motionByID = make(map[string]motionState)
+	s.alertClockByID = make(map[string]time.Time)
 	s.batchCursor = 0
+	s.transmissions = make([]simulationTransmission, 0, maxTraceEntries)
+	s.traceSeq = 0
 }
 
 func (s *simulator) Status() simulationStatus {
@@ -195,31 +230,210 @@ func (s *simulator) runTick(ctx context.Context) error {
 	if len(vehicles) == 0 {
 		return nil
 	}
-	batch := s.nextBatch(vehicles, simulationBatchSize)
+
+	batchSize := int(math.Ceil(float64(len(vehicles)) * simulationBatchRatio))
+	if batchSize < 1 {
+		batchSize = 1
+	}
+
+	batch := s.nextBatch(vehicles, batchSize)
 	if len(batch) == 0 {
 		return nil
 	}
 
 	base := time.Now().UTC()
 	deltaSeconds := float64(s.getTickMS()) / 1000.0
-	for idx, vehicle := range batch {
-		lat, lng, speedKmh := s.nextPosition(vehicle.VehicleID, vehicle.Lat, vehicle.Lng, deltaSeconds)
+	inactiveTargets, stoppedTargets, panicTargets, overspeedTargets := s.pickSimulationAssignments(len(batch))
 
-		if err := s.updateVehiclePosition(ctx, vehicle.VehicleID, lat, lng); err != nil {
-			s.registerError(err.Error())
-			continue
-		}
-
-		timestamp := base.Add(time.Duration(idx) * 200 * time.Millisecond)
-		if err := s.sendToIngestion(ctx, vehicle.VehicleID, lat, lng, speedKmh, timestamp); err != nil {
-			s.registerError(err.Error())
-			continue
-		}
-
-		s.incrementRequests(1)
+	type dispatchTask struct {
+		vehicle      simulationVehicle
+		lat          float64
+		lng          float64
+		speedKmh     float64
+		status       string
+		panicButton  bool
+		forceStopped bool
+		shouldSend   bool
 	}
 
+	tasks := make([]dispatchTask, 0, len(batch))
+	for idx, vehicle := range batch {
+		_, forceInactive := inactiveTargets[idx]
+		_, forceStoppedAlert := stoppedTargets[idx]
+		_, forceOverspeed := overspeedTargets[idx]
+		_, forcePanic := panicTargets[idx]
+		lat, lng, speedKmh := vehicle.Lat, vehicle.Lng, 0.0
+		status, shouldSend := "online", true
+		panicButton := false
+
+		if forceInactive {
+			shouldSend = false
+			if idx%2 == 0 {
+				status = "no_signal"
+			} else {
+				status = "unknown"
+			}
+		} else if forceStoppedAlert {
+			status = "stopped"
+		} else {
+			lat, lng, speedKmh = s.nextPosition(vehicle.VehicleID, vehicle.Lat, vehicle.Lng, deltaSeconds)
+			if forceOverspeed {
+				speedKmh = 105 + rand.Float64()*35
+				status = "overspeed"
+			} else if forcePanic {
+				status = "panic"
+				panicButton = true
+				if speedKmh < 8 {
+					speedKmh = 8
+				}
+			} else {
+				status = "online"
+			}
+		}
+
+		tasks = append(tasks, dispatchTask{
+			vehicle:      vehicle,
+			lat:          lat,
+			lng:          lng,
+			speedKmh:     speedKmh,
+			status:       status,
+			panicButton:  panicButton,
+			forceStopped: forceStoppedAlert,
+			shouldSend:   shouldSend,
+		})
+	}
+
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	workers := minInt(simulationDispatchWorkers, len(tasks))
+	if workers <= 0 {
+		workers = 1
+	}
+
+	jobs := make(chan dispatchTask)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for task := range jobs {
+				if err := s.updateVehicleTelemetry(ctx, task.vehicle.VehicleID, task.lat, task.lng, task.status); err != nil {
+					s.registerError(err.Error())
+					continue
+				}
+
+				if !task.shouldSend {
+					continue
+				}
+
+				timestamp := s.nextEventTimestamp(task.vehicle.VehicleID, base, task.forceStopped)
+				statusCode, body, err := s.sendToIngestion(ctx, task.vehicle.VehicleID, task.lat, task.lng, task.speedKmh, task.status, task.panicButton, timestamp)
+				result, note := classifyIngestionOutcome(statusCode, body, err)
+				s.recordTransmission(simulationTransmission{
+					VehicleID:  task.vehicle.VehicleID,
+					Kind:       "normal",
+					Result:     result,
+					Note:       note,
+					StatusCode: statusCode,
+					Timestamp:  timestamp.Format(time.RFC3339Nano),
+				})
+				if err != nil {
+					s.registerError(err.Error())
+					continue
+				}
+
+				s.incrementRequests(1)
+
+				if rand.Float64() < simulationDuplicateRatio {
+					dupStatusCode, dupBody, dupErr := s.sendToIngestion(ctx, task.vehicle.VehicleID, task.lat, task.lng, task.speedKmh, task.status, task.panicButton, timestamp)
+					dupResult, dupNote := classifyIngestionOutcome(dupStatusCode, dupBody, dupErr)
+					s.recordTransmission(simulationTransmission{
+						VehicleID:  task.vehicle.VehicleID,
+						Kind:       "duplicado",
+						Result:     dupResult,
+						Note:       dupNote,
+						StatusCode: dupStatusCode,
+						Timestamp:  timestamp.Format(time.RFC3339Nano),
+					})
+					if dupErr != nil {
+						s.registerError(dupErr.Error())
+					}
+				}
+
+				if rand.Float64() < simulationMalformedRatio {
+					badStatusCode, badBody, badErr := s.sendMalformedToIngestion(ctx, task.vehicle.VehicleID, timestamp)
+					badResult, badNote := classifyIngestionOutcome(badStatusCode, badBody, badErr)
+					s.recordTransmission(simulationTransmission{
+						VehicleID:  task.vehicle.VehicleID,
+						Kind:       "error_formato",
+						Result:     badResult,
+						Note:       badNote,
+						StatusCode: badStatusCode,
+						Timestamp:  timestamp.Format(time.RFC3339Nano),
+					})
+					if badErr != nil {
+						s.registerError(badErr.Error())
+					}
+				}
+			}
+		}()
+	}
+
+	for _, task := range tasks {
+		jobs <- task
+	}
+	close(jobs)
+	wg.Wait()
+
 	return nil
+}
+
+func (s *simulator) pickSimulationAssignments(total int) (map[int]struct{}, map[int]struct{}, map[int]struct{}, map[int]struct{}) {
+	inactiveTargets := make(map[int]struct{})
+	stoppedTargets := make(map[int]struct{})
+	panicTargets := make(map[int]struct{})
+	overspeedTargets := make(map[int]struct{})
+
+	if total <= 0 {
+		return inactiveTargets, stoppedTargets, panicTargets, overspeedTargets
+	}
+
+	activeCount := int(math.Round(float64(total) * simulationActiveRatio))
+	if activeCount < 0 {
+		activeCount = 0
+	}
+	if activeCount > total {
+		activeCount = total
+	}
+	inactiveCount := total - activeCount
+
+	stoppedCount := minInt(int(math.Round(float64(activeCount)*simulationStoppedRatio)), activeCount)
+	panicCount := minInt(int(math.Round(float64(activeCount)*simulationPanicRatio)), activeCount-stoppedCount)
+	overspeedCount := minInt(int(math.Round(float64(activeCount)*simulationOverspeedRatio)), activeCount-stoppedCount-panicCount)
+
+	perm := rand.Perm(total)
+	cursor := 0
+	for i := 0; i < inactiveCount; i++ {
+		inactiveTargets[perm[cursor]] = struct{}{}
+		cursor++
+	}
+	for i := 0; i < stoppedCount; i++ {
+		stoppedTargets[perm[cursor]] = struct{}{}
+		cursor++
+	}
+	for i := 0; i < panicCount; i++ {
+		panicTargets[perm[cursor]] = struct{}{}
+		cursor++
+	}
+	for i := 0; i < overspeedCount; i++ {
+		overspeedTargets[perm[cursor]] = struct{}{}
+		cursor++
+	}
+
+	return inactiveTargets, stoppedTargets, panicTargets, overspeedTargets
 }
 
 func (s *simulator) nextBatch(vehicles []simulationVehicle, batchSize int) []simulationVehicle {
@@ -257,6 +471,7 @@ func (s *simulator) nextPosition(vehicleID string, lat, lng, deltaSeconds float6
 			headingRad:   rand.Float64() * 2 * math.Pi,
 			speedMps:     2.5 + rand.Float64()*5.0,
 			turnRateRadS: (rand.Float64() - 0.5) * 0.04,
+			batteryLevel: 35 + rand.Float64()*65,
 		}
 	}
 
@@ -283,6 +498,9 @@ func (s *simulator) nextPosition(vehicleID string, lat, lng, deltaSeconds float6
 	s.mu.Unlock()
 
 	distanceMeters := state.speedMps * deltaSeconds
+	if rand.Float64() < 0.07 {
+		distanceMeters *= 2.2 + rand.Float64()*1.5
+	}
 	dxEastMeters := math.Cos(state.headingRad) * distanceMeters
 	dyNorthMeters := math.Sin(state.headingRad) * distanceMeters
 
@@ -294,6 +512,80 @@ func (s *simulator) nextPosition(vehicleID string, lat, lng, deltaSeconds float6
 	nextLng := clampLng(lng + dLng)
 	clampedLat, clampedLng := clampToBogota(nextLat, nextLng)
 	return clampedLat, clampedLng, state.speedMps * 3.6
+}
+
+func (s *simulator) nextEventTimestamp(vehicleID string, current time.Time, forceStoppedAlert bool) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	last, ok := s.alertClockByID[vehicleID]
+	if !ok {
+		s.alertClockByID[vehicleID] = current
+		return current
+	}
+
+	if forceStoppedAlert {
+		next := last.Add(70 * time.Second)
+		s.alertClockByID[vehicleID] = next
+		return next
+	}
+
+	next := last.Add(time.Duration(s.tickMS) * time.Millisecond)
+	if next.Before(current) {
+		next = current
+	}
+	s.alertClockByID[vehicleID] = next
+	return next
+}
+
+func (s *simulator) nextStatus(vehicleID string, speedKmh float64, now time.Time) (string, bool) {
+	s.mu.Lock()
+	state, ok := s.motionByID[vehicleID]
+	if !ok {
+		state = motionState{
+			batteryLevel: 40 + rand.Float64()*60,
+		}
+	}
+
+	state.batteryLevel -= 0.05 + rand.Float64()*0.25
+	if state.batteryLevel < 2 {
+		state.batteryLevel = 2
+	}
+
+	if now.Before(state.noSignalUntil) {
+		s.motionByID[vehicleID] = state
+		s.mu.Unlock()
+		return "no_signal", false
+	}
+	if now.Before(state.unknownUntil) {
+		s.motionByID[vehicleID] = state
+		s.mu.Unlock()
+		return "unknown", false
+	}
+
+	if rand.Float64() < 0.015 {
+		state.noSignalUntil = now.Add(time.Duration(10+rand.Intn(15)) * time.Second)
+		s.motionByID[vehicleID] = state
+		s.mu.Unlock()
+		return "no_signal", false
+	}
+	if rand.Float64() < 0.008 {
+		state.unknownUntil = now.Add(time.Duration(8+rand.Intn(12)) * time.Second)
+		s.motionByID[vehicleID] = state
+		s.mu.Unlock()
+		return "unknown", false
+	}
+
+	status := "online"
+	if speedKmh >= 72 {
+		status = "overspeed"
+	} else if state.batteryLevel <= 15 {
+		status = "low_battery"
+	}
+
+	s.motionByID[vehicleID] = state
+	s.mu.Unlock()
+	return status, true
 }
 
 func (s *simulator) loadVehicles(ctx context.Context, limit int) ([]simulationVehicle, error) {
@@ -324,49 +616,115 @@ func (s *simulator) loadVehicles(ctx context.Context, limit int) ([]simulationVe
 	return items, nil
 }
 
-func (s *simulator) updateVehiclePosition(ctx context.Context, vehicleID string, lat, lng float64) error {
+func (s *simulator) updateVehicleTelemetry(ctx context.Context, vehicleID string, lat, lng float64, status string) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE vehicles
 		SET lat = $2,
-			lng = $3
+			lng = $3,
+			status = $4
 		WHERE vehicle_id = $1
-	`, vehicleID, lat, lng)
+	`, vehicleID, lat, lng, status)
 	return err
 }
 
-func (s *simulator) sendToIngestion(ctx context.Context, vehicleID string, lat, lng, speedKmh float64, timestamp time.Time) error {
+func (s *simulator) sendToIngestion(ctx context.Context, vehicleID string, lat, lng, speedKmh float64, status string, panicButton bool, timestamp time.Time) (int, string, error) {
 	payload := ingestionGPSPayload{
-		VehicleID: vehicleID,
-		Lat:       lat,
-		Lng:       lng,
-		SpeedKmh:  speedKmh,
-		Timestamp: timestamp.Format(time.RFC3339Nano),
+		VehicleID:   vehicleID,
+		Lat:         lat,
+		Lng:         lng,
+		SpeedKmh:    speedKmh,
+		Status:      status,
+		PanicButton: panicButton,
+		Timestamp:   timestamp.Format(time.RFC3339Nano),
 	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
+	return s.postIngestion(ctx, body)
+}
+
+func (s *simulator) sendMalformedToIngestion(ctx context.Context, vehicleID string, timestamp time.Time) (int, string, error) {
+	body := []byte(fmt.Sprintf(`{"vehicle_id":"%s","lat":"abc","lng":-74.07,"timestamp":"%s"}`,
+		vehicleID,
+		timestamp.Format(time.RFC3339Nano),
+	))
+	return s.postIngestion(ctx, body)
+}
+
+func (s *simulator) postIngestion(ctx context.Context, body []byte) (int, string, error) {
 
 	endpoint := s.ingestionBaseURL + "/api/v1/ingestion/gps"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	defer resp.Body.Close()
+	bodyRaw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	bodyText := strings.TrimSpace(string(bodyRaw))
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("ingestion respondio %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return resp.StatusCode, bodyText, nil
 	}
 
-	return nil
+	return resp.StatusCode, bodyText, fmt.Errorf("ingestion respondio %d: %s", resp.StatusCode, bodyText)
+}
+
+func (s *simulator) recordTransmission(entry simulationTransmission) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.traceSeq++
+	entry.ID = s.traceSeq
+
+	s.transmissions = append([]simulationTransmission{entry}, s.transmissions...)
+	if len(s.transmissions) > maxTraceEntries {
+		s.transmissions = s.transmissions[:maxTraceEntries]
+	}
+}
+
+func (s *simulator) RecentTransmissions(limit int) []simulationTransmission {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit > len(s.transmissions) {
+		limit = len(s.transmissions)
+	}
+
+	items := make([]simulationTransmission, limit)
+	copy(items, s.transmissions[:limit])
+	return items
+}
+
+func classifyIngestionOutcome(statusCode int, body string, err error) (string, string) {
+	if err != nil {
+		if statusCode == http.StatusBadRequest {
+			return "error_controlado", "Payload malformado enviado intencionalmente"
+		}
+		return "error", body
+	}
+
+	bodyLower := strings.ToLower(body)
+	if strings.Contains(bodyLower, "duplicado_ignorado") {
+		return "duplicado", "El ingestor detecto y descarto un duplicado"
+	}
+
+	if statusCode == http.StatusCreated || statusCode == http.StatusAccepted {
+		return "ok", "Procesado correctamente"
+	}
+
+	return "ok", body
 }
 
 func (s *simulator) getSelectedCount() int {
@@ -422,4 +780,11 @@ func clampLng(value float64) float64 {
 		return 180
 	}
 	return value
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

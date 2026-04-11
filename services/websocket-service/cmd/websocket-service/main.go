@@ -19,9 +19,10 @@ import (
 )
 
 type config struct {
-	Port         int
-	RedisAddr    string
-	RedisChannel string
+	Port          int
+	RedisAddr     string
+	RedisChannel  string
+	AlertsChannel string
 }
 
 var upgrader = websocket.Upgrader{
@@ -39,8 +40,10 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	hub := ws.NewHub()
-	go hub.SubscribeRedis(ctx, redisClient, cfg.RedisChannel)
+	positionsHub := ws.NewHub()
+	alertsHub := ws.NewHub()
+	go positionsHub.SubscribeRedis(ctx, redisClient, cfg.RedisChannel)
+	go alertsHub.SubscribeRedis(ctx, redisClient, cfg.AlertsChannel)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -55,11 +58,27 @@ func main() {
 			return
 		}
 
-		hub.AddClient(conn)
+		positionsHub.AddClient(conn)
 
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
-				hub.RemoveClient(conn)
+				positionsHub.RemoveClient(conn)
+				break
+			}
+		}
+	})
+
+	mux.HandleFunc("GET /ws/alerts", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		alertsHub.AddClient(conn)
+
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				alertsHub.RemoveClient(conn)
 				break
 			}
 		}
@@ -99,9 +118,10 @@ func loadConfig() config {
 	}
 
 	return config{
-		Port:         port,
-		RedisAddr:    redisAddr,
-		RedisChannel: envString("REDIS_POSITIONS_CHANNEL", "gps:stream"),
+		Port:          port,
+		RedisAddr:     redisAddr,
+		RedisChannel:  envString("REDIS_POSITIONS_CHANNEL", "gps:stream"),
+		AlertsChannel: envString("REDIS_ALERTS_CHANNEL", "alerts:stream"),
 	}
 }
 

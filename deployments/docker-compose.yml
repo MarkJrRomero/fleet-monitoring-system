@@ -47,6 +47,30 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  db-admin:
+    container_name: fleet-db-admin
+    image: adminer:4.8.1
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "${DB_ADMIN_PORT}:8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  redis-ui:
+    container_name: fleet-redis-ui
+    image: rediscommander/redis-commander:latest
+    environment:
+      REDIS_HOSTS: local:redis:6379
+      HTTP_USER: ${REDIS_UI_USER}
+      HTTP_PASSWORD: ${REDIS_UI_PASSWORD}
+    ports:
+      - "${REDIS_UI_PORT}:8081"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
   ingestion-service:
     container_name: fleet-ingestion-service
     build:
@@ -58,6 +82,11 @@ services:
       INGESTION_DEDUPE_WINDOW_SECONDS: ${INGESTION_DEDUPE_WINDOW_SECONDS}
       NOMINATIM_REVERSE_URL: ${NOMINATIM_REVERSE_URL}
       NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT}
+      ALERTS_CHANNEL: ${ALERTS_CHANNEL}
+      ROUTING_SERVICE_URL: ${ROUTING_SERVICE_URL}
+      INGESTION_RETRY_QUEUE_SIZE: ${INGESTION_RETRY_QUEUE_SIZE}
+      INGESTION_CB_FAILURE_THRESHOLD: ${INGESTION_CB_FAILURE_THRESHOLD}
+      INGESTION_CB_RESET_SECONDS: ${INGESTION_CB_RESET_SECONDS}
       REDIS_URL: ${REDIS_URL}
       REDIS_POSITIONS_CHANNEL: ${REDIS_POSITIONS_CHANNEL}
       POSTGRES_HOST: ${POSTGRES_HOST}
@@ -82,6 +111,7 @@ services:
       WEBSOCKET_SERVICE_PORT: ${WEBSOCKET_SERVICE_PORT}
       REDIS_URL: ${REDIS_URL}
       REDIS_POSITIONS_CHANNEL: ${REDIS_POSITIONS_CHANNEL}
+      REDIS_ALERTS_CHANNEL: ${REDIS_ALERTS_CHANNEL}
     ports:
       - "${WEBSOCKET_SERVICE_PORT}:8093"
     depends_on:

@@ -1,20 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { clearSession, getUsername } from '../../auth/services/authService';
-import { POSITIONS_WS_URL, VEHICLE_BASE_URL } from '../../../shared/config/runtime';
+import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { AppShell } from '../../../shared/layouts/AppShell';
+import { confirmAction, showError, showSuccess } from '../../../shared/ui/alerts';
 
 type Vehicle = {
   vehicle_id: string;
   lat: number;
   lng: number;
   created_at?: string;
-};
-
-type PositionEvent = {
-  vehicle_id: string;
-  lat: number;
-  lng: number;
-  recorded_at: string;
 };
 
 type VehiclesResponse = {
@@ -32,10 +26,24 @@ type SimulationStatus = {
   last_error?: string;
 };
 
+type SimulationTraceItem = {
+  id: number;
+  vehicle_id: string;
+  kind: 'normal' | 'duplicado' | 'error_formato';
+  result: 'ok' | 'duplicado' | 'error_controlado' | 'error';
+  note: string;
+  status_code: number;
+  timestamp: string;
+};
+
+type SimulationTraceResponse = {
+  items: SimulationTraceItem[];
+};
+
 const defaultSimulationStatus: SimulationStatus = {
   running: false,
   selected_count: 0,
-  tick_ms: 1500,
+  tick_ms: 900,
   requests_sent: 0,
   errors_count: 0
 };
@@ -43,18 +51,14 @@ const defaultSimulationStatus: SimulationStatus = {
 export function SimulationPage() {
   const username = getUsername();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [selectedCount, setSelectedCount] = useState(50);
-  const [tickMs, setTickMs] = useState(1500);
   const [simulationStatus, setSimulationStatus] = useState<SimulationStatus>(defaultSimulationStatus);
   const [isSimulationSubmitting, setIsSimulationSubmitting] = useState(false);
-  const [isWsActive, setIsWsActive] = useState(true);
-  const [wsConnected, setWsConnected] = useState(false);
-  const [events, setEvents] = useState<PositionEvent[]>([]);
   const [isCreatingVehicles, setIsCreatingVehicles] = useState(false);
   const [isClearingDatabase, setIsClearingDatabase] = useState(false);
   const [isLoadingVehicles, setIsLoadingVehicles] = useState(false);
   const [lastCreateResult, setLastCreateResult] = useState<string>('');
   const [lastClearResult, setLastClearResult] = useState<string>('');
+  const [traceItems, setTraceItems] = useState<SimulationTraceItem[]>([]);
 
   const loadVehicles = async () => {
     setIsLoadingVehicles(true);
@@ -85,21 +89,31 @@ export function SimulationPage() {
 
       const data = (await response.json()) as SimulationStatus;
       setSimulationStatus(data);
-
-      if (data.running) {
-        setSelectedCount(data.selected_count);
-        setTickMs(data.tick_ms);
-      }
     } catch {
       setSimulationStatus(defaultSimulationStatus);
     }
   };
 
+  const loadSimulationTrace = async () => {
+    try {
+      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/trace`);
+      if (!response.ok) {
+        throw new Error('No fue posible consultar trazas de simulacion');
+      }
+      const data = (await response.json()) as SimulationTraceResponse;
+      setTraceItems(data.items ?? []);
+    } catch {
+      setTraceItems([]);
+    }
+  };
+
   useEffect(() => {
     void loadSimulationStatus();
+    void loadSimulationTrace();
 
     const interval = window.setInterval(() => {
       void loadSimulationStatus();
+      void loadSimulationTrace();
     }, 2000);
 
     return () => {
@@ -107,46 +121,7 @@ export function SimulationPage() {
     };
   }, []);
 
-  useEffect(() => {
-    setSelectedCount((prev) => {
-      if (vehicles.length === 0) {
-        return 0;
-      }
-      if (prev <= 0) {
-        return Math.min(50, vehicles.length);
-      }
-      return Math.min(prev, vehicles.length);
-    });
-  }, [vehicles.length]);
-
-  useEffect(() => {
-    if (!isWsActive) {
-      setWsConnected(false);
-      return;
-    }
-
-    const socket = new WebSocket(POSITIONS_WS_URL);
-
-    socket.onopen = () => setWsConnected(true);
-    socket.onclose = () => setWsConnected(false);
-    socket.onerror = () => setWsConnected(false);
-    socket.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data) as PositionEvent;
-        setEvents((prev) => [payload, ...prev].slice(0, 120));
-      } catch {
-        // noop
-      }
-    };
-
-    return () => {
-      socket.close();
-    };
-  }, [isWsActive]);
-
-  const activeVehicles = useMemo(() => vehicles.slice(0, selectedCount), [vehicles, selectedCount]);
-
-  const onAdd100Vehicles = async () => {
+  const onAdd200Vehicles = async () => {
     setIsCreatingVehicles(true);
     setLastCreateResult('');
 
@@ -154,7 +129,7 @@ export function SimulationPage() {
       const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: 100 })
+        body: JSON.stringify({ count: 200 })
       });
 
       if (!response.ok) {
@@ -163,16 +138,23 @@ export function SimulationPage() {
 
       const data = (await response.json()) as { created?: number; total?: number };
       setLastCreateResult(`Creados: ${data.created ?? 0} | Total BD: ${data.total ?? 0}`);
+      await showSuccess('Vehiculos creados', `Se agregaron ${data.created ?? 0} vehiculos. Total en BD: ${data.total ?? 0}.`);
       await loadVehicles();
     } catch {
       setLastCreateResult('Error creando vehiculos en base de datos');
+      await showError('No se pudieron crear vehiculos', 'Verifica el estado del servicio y vuelve a intentar.');
     } finally {
       setIsCreatingVehicles(false);
     }
   };
 
   const onClearDatabase = async () => {
-    const confirmed = window.confirm('Esto borrara TODOS los vehiculos y posiciones historicas. Deseas continuar?');
+    const confirmed = await confirmAction({
+      title: 'Limpiar base de datos',
+      text: 'Esto borrara todos los vehiculos y posiciones historicas. Esta accion no se puede deshacer.',
+      confirmText: 'Si, limpiar',
+      cancelText: 'Cancelar'
+    });
     if (!confirmed) {
       return;
     }
@@ -189,14 +171,16 @@ export function SimulationPage() {
         throw new Error('No fue posible limpiar la base de datos');
       }
 
-      setEvents([]);
+      setTraceItems([]);
       setLastCreateResult('');
       setLastClearResult('Base de datos limpiada: vehiculos y posiciones eliminados.');
+      await showSuccess('Base de datos limpiada', 'Los vehiculos y posiciones historicas fueron eliminados correctamente.');
 
       await loadVehicles();
       await loadSimulationStatus();
     } catch {
       setLastClearResult('Error limpiando la base de datos');
+      await showError('No se pudo limpiar la base de datos', 'Intenta nuevamente en unos segundos.');
     } finally {
       setIsClearingDatabase(false);
     }
@@ -218,24 +202,28 @@ export function SimulationPage() {
           if (!response.ok) {
             throw new Error('No fue posible detener simulacion');
           }
+          await showSuccess('Simulacion detenida', 'Se detuvo el envio de datos del simulador.');
         } else {
-          if (vehicles.length === 0 || selectedCount <= 0) {
+          if (vehicles.length === 0) {
+            await showError('Sin vehiculos', 'Debes crear vehiculos en BD antes de iniciar la simulacion.');
             return;
           }
 
           const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ selected_count: selectedCount, tick_ms: tickMs })
+            body: JSON.stringify({})
           });
           if (!response.ok) {
             throw new Error('No fue posible iniciar simulacion');
           }
+          await showSuccess('Simulacion iniciada', 'Se simularan todos los vehiculos disponibles con inyeccion de caos activa.');
         }
 
         await loadSimulationStatus();
+        await loadSimulationTrace();
       } catch {
-        // noop
+        await showError('Operacion de simulacion fallida', 'No fue posible completar la solicitud de simulacion.');
       } finally {
         setIsSimulationSubmitting(false);
       }
@@ -249,184 +237,370 @@ export function SimulationPage() {
     window.location.href = '/login';
   };
 
+  const activeVehicles = simulationStatus.running ? vehicles.length : 0;
+
+  const simulationRatio = useMemo(() => {
+    if (vehicles.length <= 0) {
+      return 0;
+    }
+    return Math.min(100, Math.round((activeVehicles / vehicles.length) * 100));
+  }, [activeVehicles, vehicles.length]);
+
+  const onExportLogs = () => {
+    const header = ['vehiculo_id', 'tipo', 'resultado', 'nota', 'status_http', 'timestamp'];
+    const rows = traceItems.map((item) => [
+      item.vehicle_id,
+      item.kind,
+      item.result,
+      item.note.replace(/\n/g, ' '),
+      String(item.status_code || ''),
+      item.timestamp
+    ]);
+
+    const csv = [header, ...rows]
+      .map((cols) => cols.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `simulation-trace-${new Date().toISOString()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const barMetrics = useMemo(() => {
+    const sample = traceItems.slice(0, 200);
+    const metrics = [
+      {
+        key: 'requests',
+        label: 'Peticiones',
+        value: simulationStatus.requests_sent,
+        tone: 'bg-sky-500'
+      },
+      {
+        key: 'ok',
+        label: 'Exito',
+        value: sample.filter((item) => item.result === 'ok').length,
+        tone: 'bg-emerald-500'
+      },
+      {
+        key: 'duplicado',
+        label: 'Duplicado',
+        value: sample.filter((item) => item.result === 'duplicado').length,
+        tone: 'bg-cyan-500'
+      },
+      {
+        key: 'error_controlado',
+        label: 'Error controlado',
+        value: sample.filter((item) => item.result === 'error_controlado').length,
+        tone: 'bg-amber-500'
+      },
+      {
+        key: 'error',
+        label: 'Error no controlado',
+        value: sample.filter((item) => item.result === 'error').length,
+        tone: 'bg-rose-500'
+      }
+    ];
+
+    const maxValue = Math.max(1, ...metrics.map((item) => item.value));
+
+    return metrics.map((item) => ({
+      ...item,
+      percent: Math.max(6, Math.round((item.value / maxValue) * 100))
+    }));
+  }, [traceItems, simulationStatus.requests_sent]);
+
   return (
     <AppShell
-      headerRight={<span>Vehiculos creados: {vehicles.length}</span>}
+      headerRight={<span>Vehiculos activos: {activeVehicles}</span>}
       navItems={[
-        { to: '/', label: 'Dashboard', icon: 'map', subtitle: 'Mapa en tiempo real' },
+        { to: '/', label: 'Dashboard', icon: 'map', subtitle: 'Alertas y mapa' },
+        { to: '/vehiculos', label: 'Vehiculos', icon: 'directions_car', subtitle: 'Tabla y creacion' },
         { to: '/simulacion', label: 'Simulacion', icon: 'smart_toy', subtitle: 'Generador de flota', active: true }
       ]}
       onLogout={onLogout}
-      statusLabel="WebSocket"
-      statusOk={wsConnected}
-      statusValue={wsConnected ? 'conectado' : 'desconectado'}
-      title="Modulo de simulacion"
+      title="Modulo de Simulacion"
       username={username}
     >
-      <div className="grid grid-cols-12 gap-6">
-        <section className="rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-5 col-span-12 xl:col-span-4">
-          <h2 className="font-headline text-lg font-bold">Gestion de vehiculos (BD)</h2>
-          <p className="mt-1 text-sm text-on-surface-variant">La creacion de vehiculos es independiente de la simulacion.</p>
-
-          <button
-            className="mt-4 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isCreatingVehicles}
-            onClick={onAdd100Vehicles}
-          >
-            {isCreatingVehicles ? 'Creando...' : 'Crear 100 vehiculos en BD'}
-          </button>
-
-          <button
-            className="mt-2 w-full rounded-xl border border-outline-variant/20 bg-surface px-4 py-2 text-sm font-semibold"
-            disabled={isLoadingVehicles}
-            onClick={() => void loadVehicles()}
-          >
-            {isLoadingVehicles ? 'Actualizando...' : 'Refrescar vehiculos de BD'}
-          </button>
-
-          <button
-            className="mt-2 w-full rounded-xl border border-error/35 bg-error/10 px-4 py-2 text-sm font-semibold text-error disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isClearingDatabase}
-            onClick={() => void onClearDatabase()}
-          >
-            {isClearingDatabase ? 'Limpiando BD...' : 'Limpiar base de datos'}
-          </button>
-
-          {lastCreateResult ? (
-            <div className="mt-3 rounded-xl border border-outline-variant/20 bg-surface p-3 text-xs text-on-surface-variant">
-              {lastCreateResult}
-            </div>
-          ) : null}
-
-          {lastClearResult ? (
-            <div className="mt-2 rounded-xl border border-outline-variant/20 bg-surface p-3 text-xs text-on-surface-variant">
-              {lastClearResult}
-            </div>
-          ) : null}
-
-          <div className="mt-6 border-t border-outline-variant/15 pt-5">
-            <h3 className="font-headline text-base font-bold">Simulador de ingesta</h3>
-            <p className="mt-1 text-sm text-on-surface-variant">Solo simula posiciones de vehiculos existentes en base de datos.</p>
+      <section className="rounded-[28px] border border-outline-variant/20 bg-surface-container-lowest p-4 sm:p-6">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-headline text-3xl font-black tracking-tight text-slate-900">Modulo de Simulacion</h2>
+            <p className="text-sm text-slate-500">{formatNumber(vehicles.length)} vehiculos activos en el entorno virtual.</p>
           </div>
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-outline-variant/35 bg-white px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-600 transition hover:border-primary/70 hover:text-slate-900"
+              onClick={onExportLogs}
+              type="button"
+            >
+              Exportar Logs
+            </button>
+            <button
+              className="rounded-xl bg-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-on-primary disabled:cursor-not-allowed disabled:opacity-65"
+              disabled={isSimulationSubmitting || (!simulationStatus.running && vehicles.length === 0)}
+              onClick={(event) => {
+                event.preventDefault();
+                const fake = { preventDefault: () => undefined } as FormEvent;
+                onSubmit(fake);
+              }}
+              type="button"
+            >
+              {simulationStatus.running ? 'Detener Simulacion' : 'Iniciar Simulacion'}
+            </button>
+          </div>
+        </div>
 
-          <form className="mt-5 space-y-4" onSubmit={onSubmit}>
-            <label className="block text-sm font-medium text-on-surface-variant">
-              Cantidad de vehiculos existentes a simular
-              <input
-                className="mt-1 w-full rounded-xl border border-outline-variant/30 bg-surface px-3 py-2"
-                max={Math.max(vehicles.length, 1)}
-                min={vehicles.length > 0 ? 1 : 0}
-                type="number"
-                value={selectedCount}
-                onChange={(e) => {
-                  const nextValue = Number(e.target.value) || 0;
-                  setSelectedCount(Math.max(0, Math.min(nextValue, vehicles.length)));
-                }}
-              />
-            </label>
+        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+          <MetricCard icon="database" label="Total BD" value={formatNumber(vehicles.length)} hint="Flota registrada" />
+          <MetricCard icon="settings_input_component" label="Simulando" value={formatNumber(activeVehicles)} hint={`${simulationRatio}% cargado`} />
+          <MetricCard icon="send" label="Requests" value={formatCompact(simulationStatus.requests_sent)} hint="Ultimos ciclos" />
+          <MetricCard icon="warning" label="Errores" value={formatNumber(simulationStatus.errors_count)} hint="Critico" tone="danger" />
+          <MetricCard icon="schedule" label="Tick" value={`${simulationStatus.tick_ms || 1000}ms`} hint="Controlado" />
+          <MetricCard icon="hub" label="Estado" value={simulationStatus.running ? 'Online' : 'Idle'} hint={simulationStatus.started_at ? new Date(simulationStatus.started_at).toLocaleTimeString() : 'Sin iniciar'} tone={simulationStatus.running ? 'ok' : 'neutral'} />
+        </div>
 
-            <label className="block text-sm font-medium text-on-surface-variant">
-              Intervalo por tick (ms)
-              <input
-                className="mt-1 w-full rounded-xl border border-outline-variant/30 bg-surface px-3 py-2"
-                min={200}
-                step={100}
-                type="number"
-                value={tickMs}
-                onChange={(e) => setTickMs(Math.max(200, Number(e.target.value) || 1500))}
-              />
-            </label>
-
-            <div className="flex gap-2">
+        <div className="grid grid-cols-12 gap-4">
+          <aside className="col-span-12 space-y-4 xl:col-span-3">
+            <article className="rounded-2xl border border-outline-variant/25 bg-white p-4 shadow-sm">
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Gestion de Flota</p>
               <button
-                className="flex-1 rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text-on-secondary disabled:cursor-not-allowed disabled:opacity-70"
-                disabled={isSimulationSubmitting || (!simulationStatus.running && (vehicles.length === 0 || selectedCount <= 0))}
-                type="submit"
+                className="w-full rounded-lg bg-slate-100 px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+                disabled={isCreatingVehicles}
+                onClick={onAdd200Vehicles}
               >
-                {simulationStatus.running ? 'Detener simulacion' : 'Iniciar simulacion'}
+                {isCreatingVehicles ? 'Creando...' : 'Crear Vehiculos'}
               </button>
               <button
-                className="flex-1 rounded-xl border border-outline-variant/20 bg-surface px-4 py-2 text-sm font-semibold"
-                type="button"
-                onClick={() => setIsWsActive((prev) => !prev)}
+                className="mt-2 w-full rounded-lg bg-slate-100 px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+                disabled={isLoadingVehicles}
+                onClick={() => void loadVehicles()}
               >
-                {isWsActive ? 'Desactivar WS' : 'Activar WS'}
+                {isLoadingVehicles ? 'Actualizando...' : 'Actualizar Lista'}
               </button>
-            </div>
-          </form>
+              <button
+                className="mt-4 w-full rounded-lg border border-rose-300/80 px-3 py-2 text-left text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+                disabled={isClearingDatabase}
+                onClick={() => void onClearDatabase()}
+              >
+                {isClearingDatabase ? 'Limpiando...' : 'Reiniciar Base de Datos'}
+              </button>
+            </article>
 
-          <div className="mt-5 grid grid-cols-2 gap-2 text-sm">
-            <StatCard label="Vehiculos en BD" value={vehicles.length} />
-            <StatCard label="Simulando" value={Math.min(selectedCount, vehicles.length)} />
-            <StatCard label="Solicitudes enviadas" value={simulationStatus.requests_sent} />
-            <StatCard label="Errores" value={simulationStatus.errors_count} />
-          </div>
-
-          <div className="mt-4 rounded-xl border border-outline-variant/20 bg-surface p-3 text-xs text-on-surface-variant">
-            WebSocket: <strong className={wsConnected ? 'text-secondary' : 'text-error'}>{wsConnected ? 'conectado' : 'desconectado'}</strong>
-          </div>
-
-          <div className="mt-2 rounded-xl border border-outline-variant/20 bg-surface p-3 text-xs text-on-surface-variant">
-            Simulador backend: <strong className={simulationStatus.running ? 'text-secondary' : 'text-on-surface'}>{simulationStatus.running ? 'activo' : 'detenido'}</strong>
-            {simulationStatus.started_at ? <span className="ml-2">Inicio: {new Date(simulationStatus.started_at).toLocaleTimeString()}</span> : null}
-          </div>
-
-          {simulationStatus.last_error ? (
-            <div className="mt-2 rounded-xl border border-error/30 bg-error/10 p-3 text-xs text-error">Ultimo error: {simulationStatus.last_error}</div>
-          ) : null}
-        </section>
-
-        <section className="rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-5 col-span-12 xl:col-span-8">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-headline text-lg font-bold">Feed en tiempo real (WebSocket)</h2>
-            <span className="text-xs text-on-surface-variant">Canal: gps:stream</span>
-          </div>
-
-          <div className="mb-4 h-[320px] overflow-hidden rounded-2xl border border-outline-variant/20 bg-[radial-gradient(circle_at_15%_20%,rgba(0,83,219,0.2),transparent_28%),radial-gradient(circle_at_85%_70%,rgba(0,107,98,0.2),transparent_28%),linear-gradient(120deg,#dfeaff_0%,#eef4ff_100%)] p-4">
-            <div className="grid h-full w-full grid-cols-2 gap-2 rounded-xl border border-white/60 bg-white/45 p-3 backdrop-blur">
-              {activeVehicles.slice(0, 30).map((vehicle) => (
-                <div key={vehicle.vehicle_id} className="flex items-center gap-2 rounded-lg bg-white/70 px-2 py-1 text-xs shadow-sm">
-                  <span className="inline-block h-2 w-2 rounded-full bg-primary" />
-                  <span className="font-semibold">{vehicle.vehicle_id}</span>
-                  <span className="text-slate-500">{vehicle.lat.toFixed(4)}, {vehicle.lng.toFixed(4)}</span>
+            <article className="rounded-2xl border border-outline-variant/25 bg-white p-4 shadow-sm">
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Configuracion</p>
+              <div className="space-y-3">
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-400">
+                    <span>Frecuencia de refresco</span>
+                    <span>{simulationStatus.tick_ms || 1000}ms</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-100">
+                    <div className="h-full w-[50%] rounded-full bg-primary" />
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-400">
+                    <span>Nivel de caos</span>
+                    <span>15%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-100">
+                    <div className="h-full w-[15%] rounded-full bg-rose-400" />
+                  </div>
+                </div>
+              </div>
+              <p className="mt-3 text-[11px] text-slate-500">Activo: 10% duplicados y 5% payload invalido.</p>
+            </article>
+          </aside>
 
-          <div className="max-h-[260px] overflow-auto rounded-xl border border-outline-variant/20">
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-surface-container-low">
-                <tr>
-                  <th className="px-3 py-2">Vehiculo</th>
-                  <th className="px-3 py-2">Lat</th>
-                  <th className="px-3 py-2">Lng</th>
-                  <th className="px-3 py-2">Timestamp</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((event) => (
-                  <tr key={`${event.vehicle_id}-${event.recorded_at}`} className="border-t border-outline-variant/10">
-                    <td className="px-3 py-2 font-medium">{event.vehicle_id}</td>
-                    <td className="px-3 py-2">{event.lat.toFixed(5)}</td>
-                    <td className="px-3 py-2">{event.lng.toFixed(5)}</td>
-                    <td className="px-3 py-2">{new Date(event.recorded_at).toLocaleTimeString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="col-span-12 space-y-4 xl:col-span-9">
+            <article className="rounded-2xl border border-outline-variant/25 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Grafico de barras en tiempo real</p>
+                <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">{simulationStatus.running ? 'Stream activo' : 'Stream en pausa'}</span>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="space-y-3">
+                  {barMetrics.map((metric) => (
+                    <div key={metric.key}>
+                      <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-600">
+                        <span>{metric.label}</span>
+                        <span>{formatNumber(metric.value)}</span>
+                      </div>
+                      <div className="h-4 overflow-hidden rounded-md bg-white">
+                        <div className={`h-full rounded-md ${metric.tone}`} style={{ width: `${metric.percent}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex items-center justify-end gap-2 text-xs text-slate-500">
+                  <span className="rounded bg-white px-2 py-1 shadow-sm">Muestra: {traceItems.length > 200 ? 'ultimos 200' : `ultimos ${traceItems.length}`}</span>
+                  <span className="rounded bg-white px-2 py-1 shadow-sm">{simulationStatus.running ? 'ingiriendo' : 'idle'}</span>
+                </div>
+              </div>
+            </article>
+
+            <article className="rounded-2xl border border-outline-variant/25 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-headline text-xl font-bold text-slate-900">Log de Trazas Recientes</h3>
+                  <p className="text-xs text-slate-500">Monitoreo de flujo de eventos HTTP y simulacion.</p>
+                </div>
+                <div className="rounded-full border border-outline-variant/30 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">Ultimos {traceItems.length}</div>
+              </div>
+
+              <div className="h-[420px] overflow-y-auto overflow-x-auto rounded-xl border border-outline-variant/20">
+                <table className="w-full min-w-[900px] text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Vehiculo</th>
+                      <th className="px-4 py-3">Tipo de evento</th>
+                      <th className="px-4 py-3">Resultado</th>
+                      <th className="px-4 py-3">Nota</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {traceItems.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-4 py-3 font-semibold text-slate-700">{item.vehicle_id}</td>
+                        <td className="px-4 py-3 text-slate-600">{formatTraceKind(item.kind)}</td>
+                        <td className="px-4 py-3">
+                          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${traceResultBadge(item.result)}`}>
+                            {formatTraceResult(item.result)}
+                          </span>
+                        </td>
+                        <td className="max-w-[340px] truncate px-4 py-3 text-slate-500" title={item.note}>{item.note}</td>
+                        <td className="px-4 py-3">
+                          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${traceHttpBadge(item.status_code)}`}>
+                            {item.status_code || '--'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">{new Date(item.timestamp).toLocaleTimeString()}</td>
+                      </tr>
+                    ))}
+                    {traceItems.length === 0 ? (
+                      <tr>
+                        <td className="px-4 py-12 text-center text-sm text-slate-400" colSpan={6}>
+                          Sin trazas por ahora. Inicia simulacion para ver eventos en tiempo real.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+
+              {simulationStatus.last_error ? (
+                <div className="mt-3 rounded-xl border border-rose-300/60 bg-rose-50 p-3 text-xs text-rose-700">
+                  Ultimo error backend: {simulationStatus.last_error}
+                </div>
+              ) : null}
+            </article>
           </div>
-        </section>
-      </div>
+        </div>
+
+        {(lastCreateResult || lastClearResult) ? (
+          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+            {lastCreateResult ? <p className="rounded-xl border border-outline-variant/20 bg-white p-3 text-xs text-slate-600">{lastCreateResult}</p> : null}
+            {lastClearResult ? <p className="rounded-xl border border-outline-variant/20 bg-white p-3 text-xs text-slate-600">{lastClearResult}</p> : null}
+          </div>
+        ) : null}
+      </section>
     </AppShell>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function formatCompact(value: number): string {
+  if (Math.abs(value) >= 1000) {
+    return `${(value / 1000).toFixed(1)}k`;
+  }
+  return `${value}`;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat('es-CO').format(value);
+}
+
+function formatTraceKind(kind: SimulationTraceItem['kind']): string {
+  if (kind === 'duplicado') {
+    return 'Heartbeat_Sync';
+  }
+  if (kind === 'error_formato') {
+    return 'Payload_Invalido';
+  }
+  return 'Telemetry_Update';
+}
+
+function formatTraceResult(result: SimulationTraceItem['result']): string {
+  if (result === 'ok') {
+    return 'Exito';
+  }
+  if (result === 'duplicado') {
+    return 'Duplicado';
+  }
+  if (result === 'error_controlado') {
+    return 'Advertencia';
+  }
+  return 'Error';
+}
+
+function traceResultBadge(result: SimulationTraceItem['result']): string {
+  if (result === 'ok') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (result === 'duplicado') {
+    return 'bg-sky-100 text-sky-700';
+  }
+  if (result === 'error_controlado') {
+    return 'bg-amber-100 text-amber-700';
+  }
+  return 'bg-rose-100 text-rose-700';
+}
+
+function traceHttpBadge(statusCode: number): string {
+  if (statusCode >= 200 && statusCode < 300) {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (statusCode >= 400) {
+    return 'bg-rose-100 text-rose-700';
+  }
+  return 'bg-slate-100 text-slate-600';
+}
+
+function MetricCard({
+  icon,
+  label,
+  value,
+  hint,
+  tone = 'neutral'
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  hint: string;
+  tone?: 'neutral' | 'ok' | 'danger';
+}) {
+  const toneClasses = tone === 'ok'
+    ? 'text-emerald-700'
+    : tone === 'danger'
+      ? 'text-rose-700'
+      : 'text-slate-800';
+
   return (
-    <div className="rounded-xl border border-outline-variant/20 bg-surface p-3">
-      <div className="text-[11px] uppercase tracking-wider text-on-surface-variant">{label}</div>
-      <div className="mt-1 text-lg font-bold">{value}</div>
+    <div className="rounded-2xl border border-outline-variant/20 bg-white p-3 shadow-sm">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="material-symbols-outlined text-base text-slate-400">{icon}</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{label}</span>
+      </div>
+      <div className={`text-2xl font-black tracking-tight ${toneClasses}`}>{value}</div>
+      <div className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">{hint}</div>
     </div>
   );
 }

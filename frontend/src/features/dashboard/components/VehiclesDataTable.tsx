@@ -6,6 +6,8 @@ import {
   useReactTable
 } from '@tanstack/react-table';
 import { useMemo, useState } from 'react';
+import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
+import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../utils/vehicleStatus';
 
 export type VehicleTableRow = {
   vehicle_id: string;
@@ -23,6 +25,12 @@ type VehiclesDataTableProps = {
 };
 
 const columnHelper = createColumnHelper<VehicleTableRow>();
+const PAGE_SIZE_OPTIONS: SelectOption[] = [
+  { value: '10', label: '10 por pagina' },
+  { value: '25', label: '25 por pagina' },
+  { value: '50', label: '50 por pagina' },
+  { value: '100', label: '100 por pagina' }
+];
 
 export function VehiclesDataTable({ rows }: VehiclesDataTableProps) {
   const [pagination, setPagination] = useState({
@@ -38,15 +46,16 @@ export function VehiclesDataTable({ rows }: VehiclesDataTableProps) {
       }),
       columnHelper.accessor('isReporting', {
         header: 'Estado',
-        cell: (info) => (
+        cell: (info) => {
+          const status = info.row.original.status;
+          return (
           <span
-            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-              info.getValue() ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'
-            }`}
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold ${getVehicleStatusBadgeClasses(status)}`}
           >
-            {info.getValue() ? 'Reportando' : 'Sin reporte'}
+            {getVehicleStatusLabel(status)}
           </span>
-        )
+          );
+        }
       }),
       columnHelper.accessor('lat', {
         header: 'Lat',
@@ -136,19 +145,16 @@ export function VehiclesDataTable({ rows }: VehiclesDataTableProps) {
             Pagina {table.getState().pagination.pageIndex + 1} / {Math.max(table.getPageCount(), 1)}
           </span>
 
-          <select
-            className="rounded-lg border border-outline-variant/30 bg-surface px-2 py-1.5"
-            value={table.getState().pagination.pageSize}
-            onChange={(event) => {
-              table.setPageSize(Number(event.target.value));
-            }}
-          >
-            {[10, 25, 50, 100].map((size) => (
-              <option key={size} value={size}>
-                {size} por pagina
-              </option>
-            ))}
-          </select>
+          <div className="min-w-[150px]">
+            <StyledSelect
+              isSearchable={false}
+              options={PAGE_SIZE_OPTIONS}
+              value={String(table.getState().pagination.pageSize)}
+              onChange={(value) => {
+                table.setPageSize(Number(value));
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

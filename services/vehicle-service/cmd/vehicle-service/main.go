@@ -47,6 +47,7 @@ func main() {
 	mux.HandleFunc("GET /api/v1/vehicles/", h.GetVehicle)
 	mux.HandleFunc("PATCH /api/v1/vehicles/", h.UpdateVehicle)
 	mux.HandleFunc("GET /api/v1/simulation/status", h.GetSimulationStatus)
+	mux.HandleFunc("GET /api/v1/simulation/trace", h.GetSimulationTrace)
 	mux.HandleFunc("POST /api/v1/simulation/start", h.StartSimulation)
 	mux.HandleFunc("POST /api/v1/simulation/stop", h.StopSimulation)
 	mux.HandleFunc("POST /api/v1/admin/clear-db", h.ClearDatabase)

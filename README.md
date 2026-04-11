@@ -50,7 +50,10 @@ Redis quedara disponible en `localhost:6379`.
 PostgreSQL quedara disponible en `localhost:5432`.
 Servicio de ingesta quedara disponible en `http://localhost:8091`.
 Servicio websocket quedara disponible en `ws://localhost:8093/ws/positions`.
+Canal websocket de alertas quedara disponible en `ws://localhost:8093/ws/alerts`.
 Servicio de vehiculos quedara disponible en `http://localhost:8094`.
+Adminer (PostgreSQL UI) quedara disponible en `http://localhost:8088`.
+Redis Commander (Redis UI) quedara disponible en `http://localhost:8089`.
 
 Admin Console de Keycloak:
 - URL: `http://localhost:8080/admin`
@@ -76,6 +79,23 @@ make down
 | `make build` | Rebuild de imagenes |
 | `make pull` | Pull de imagenes remotas |
 | `make env-init` | Crea `.env` local desde `.env.example` |
+
+## Gestores visuales en Docker
+
+### PostgreSQL (Adminer)
+
+- URL: `http://localhost:8088`
+- Sistema: `PostgreSQL`
+- Servidor: `postgres`
+- Usuario: valor de `POSTGRES_USER` (default: `fleet_user`)
+- Password: valor de `POSTGRES_PASSWORD` (default: `fleet_password`)
+- Base de datos: valor de `POSTGRES_DB` (default: `fleet_monitoring`)
+
+### Redis (Redis Commander)
+
+- URL: `http://localhost:8089`
+- Usuario: valor de `REDIS_UI_USER` (default: `admin`)
+- Password: valor de `REDIS_UI_PASSWORD` (default: `admin`)
 
 ## Estrategia de variables de entorno (senior)
 
@@ -103,6 +123,7 @@ Variables clave actuales:
 - Microservicios (placeholders para siguientes iteraciones):
 	- `API_PORT`, `API_BASE_URL`
 	- `INGESTION_SERVICE_PORT`, `INGESTION_RECENT_TTL_SECONDS`, `INGESTION_DEDUPE_WINDOW_SECONDS`
+	- `REDIS_POSITIONS_CHANNEL`, `REDIS_ALERTS_CHANNEL`
 	- `NOTIFICATION_SERVICE_PORT`
 	- `REDIS_URL`, `REDIS_PORT`
 	- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE`
@@ -130,6 +151,7 @@ Comportamiento:
 - Cache de coordenada reciente por vehiculo en Redis con TTL corto
 - Persistencia historica en PostgreSQL (`gps_locations`)
 - Publicacion del evento en Redis channel (`gps:stream`) para consumo del websocket-service
+- Si un vehiculo envia la misma coordenada por mas de 1 minuto, se publica alerta `Vehiculo Detenido` en `alerts:stream`
 
 Ejemplo rapido:
 

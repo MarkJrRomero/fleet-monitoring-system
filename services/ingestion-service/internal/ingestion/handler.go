@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -21,6 +22,11 @@ type Config struct {
 	PositionsChannel    string
 	NominatimBaseURL    string
 	NominatimUserAgent  string
+	AlertsChannel       string
+	RoutingServiceURL   string
+	RetryQueueSize      int
+	CBFailureThreshold  int
+	CBResetSeconds      int
 }
 
 type Handler struct {
@@ -28,14 +34,22 @@ type Handler struct {
 	db       *pgxpool.Pool
 	config   Config
 	geocoder *ReverseGeocoder
+
+	persistenceBreaker *CircuitBreaker
+	routingBreaker     *CircuitBreaker
+	persistenceQueue   chan persistenceJob
+	routingQueue       chan routingJob
+	routingHTTPClient  *http.Client
 }
 
 type gpsIngestRequest struct {
-	VehicleID string      `json:"vehicle_id"`
-	Lat       float64     `json:"lat"`
-	Lng       float64     `json:"lng"`
-	SpeedKmh  *float64    `json:"speed_kmh,omitempty"`
-	Timestamp interface{} `json:"timestamp"`
+	VehicleID   string      `json:"vehicle_id"`
+	Lat         float64     `json:"lat"`
+	Lng         float64     `json:"lng"`
+	SpeedKmh    *float64    `json:"speed_kmh,omitempty"`
+	Status      string      `json:"status,omitempty"`
+	PanicButton *bool       `json:"panic_button,omitempty"`
+	Timestamp   interface{} `json:"timestamp"`
 }
 
 type ingestResponse struct {
@@ -46,6 +60,7 @@ type ingestResponse struct {
 
 type vehicle struct {
 	VehicleID string    `json:"vehicle_id"`
+	IMEI      string    `json:"imei"`
 	Lat       float64   `json:"lat"`
 	Lng       float64   `json:"lng"`
 	CreatedAt time.Time `json:"created_at"`
@@ -71,17 +86,28 @@ type positionEnrichment struct {
 }
 
 const (
-	bogotaBaseLat = 4.7110
-	bogotaBaseLng = -74.0721
+	bogotaBaseLat     = 4.7110
+	bogotaBaseLng     = -74.0721
+	geocodeSampleRate = 0.10
+	geocodeTimeout    = 180 * time.Millisecond
 )
 
 func NewHandler(redisClient *redis.Client, dbPool *pgxpool.Pool, cfg Config) *Handler {
-	return &Handler{
-		redis:    redisClient,
-		db:       dbPool,
-		config:   cfg,
-		geocoder: NewReverseGeocoder(cfg.NominatimBaseURL, cfg.NominatimUserAgent),
+	h := &Handler{
+		redis:             redisClient,
+		db:                dbPool,
+		config:            cfg,
+		geocoder:          NewReverseGeocoder(cfg.NominatimBaseURL, cfg.NominatimUserAgent),
+		routingHTTPClient: &http.Client{Timeout: 6 * time.Second},
 	}
+
+	h.initResilience(resilienceConfig{
+		QueueSize:        cfg.RetryQueueSize,
+		FailureThreshold: cfg.CBFailureThreshold,
+		ResetTimeout:     time.Duration(maxInt(cfg.CBResetSeconds, 30)) * time.Second,
+	})
+
+	return h
 }
 
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
@@ -124,20 +150,32 @@ func (h *Handler) IngestGPS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	enrichment := h.enrichPosition(ctx, req)
+	alerts := make([]map[string]interface{}, 0, 3)
+	if alertPayload := h.detectStoppedAlert(ctx, req, recordedAt); alertPayload != nil {
+		alerts = append(alerts, alertPayload)
+	}
+	if overspeedAlert := h.detectOverspeedAlert(ctx, req, enrichment.SpeedKmh, recordedAt); overspeedAlert != nil {
+		alerts = append(alerts, overspeedAlert)
+	}
+	if panicAlert := h.detectPanicButtonAlert(ctx, req, recordedAt); panicAlert != nil {
+		alerts = append(alerts, panicAlert)
+	}
 
 	if err := h.cacheRecentCoordinate(ctx, req, recordedAt, enrichment); err != nil {
 		writeError(w, http.StatusInternalServerError, "error guardando cache reciente")
 		return
 	}
 
-	if err := h.persistHistoricalCoordinate(ctx, req, recordedAt, enrichment); err != nil {
-		writeError(w, http.StatusInternalServerError, "error persistiendo historico")
+	h.persistWithResilience(ctx, req, recordedAt, enrichment)
+
+	if err := h.publishPositionEvent(ctx, req, recordedAt, enrichment, alerts); err != nil {
+		writeError(w, http.StatusInternalServerError, "error publicando evento de posicion")
 		return
 	}
 
-	if err := h.publishPositionEvent(ctx, req, recordedAt, enrichment); err != nil {
-		writeError(w, http.StatusInternalServerError, "error publicando evento de posicion")
-		return
+	for _, alertPayload := range alerts {
+		h.publishAlert(ctx, alertPayload)
+		h.routeWithResilience(ctx, alertPayload)
 	}
 
 	writeJSON(w, http.StatusCreated, ingestResponse{
@@ -151,7 +189,7 @@ func (h *Handler) ListVehicles(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	rows, err := h.db.Query(ctx, `
-		SELECT vehicle_id, lat, lng, created_at
+		SELECT vehicle_id, imei, lat, lng, created_at
 		FROM vehicles
 		ORDER BY created_at ASC
 	`)
@@ -164,7 +202,7 @@ func (h *Handler) ListVehicles(w http.ResponseWriter, r *http.Request) {
 	vehicles := make([]vehicle, 0)
 	for rows.Next() {
 		var item vehicle
-		if err := rows.Scan(&item.VehicleID, &item.Lat, &item.Lng, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.VehicleID, &item.IMEI, &item.Lat, &item.Lng, &item.CreatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "error leyendo vehiculos")
 			return
 		}
@@ -216,14 +254,15 @@ func (h *Handler) CreateVehiclesBulk(w http.ResponseWriter, r *http.Request) {
 	created := 0
 	for i := 0; i < req.Count; i++ {
 		id := fmt.Sprintf("SIM-%05d", startIndex+i)
+		imei := fmt.Sprintf("86%013d", startIndex+i)
 		lat := bogotaBaseLat + (rnd.Float64()-0.5)*0.05
 		lng := bogotaBaseLng + (rnd.Float64()-0.5)*0.05
 
 		tag, execErr := tx.Exec(ctx, `
-			INSERT INTO vehicles (vehicle_id, lat, lng)
-			VALUES ($1, $2, $3)
+			INSERT INTO vehicles (vehicle_id, imei, lat, lng)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (vehicle_id) DO NOTHING
-		`, id, lat, lng)
+		`, id, imei, lat, lng)
 		if execErr != nil {
 			writeError(w, http.StatusInternalServerError, "error creando vehiculos")
 			return
@@ -272,19 +311,33 @@ func (h *Handler) countVehicles(ctx context.Context) (int, error) {
 	return total, nil
 }
 
-func (h *Handler) publishPositionEvent(ctx context.Context, req gpsIngestRequest, recordedAt time.Time, enrichment positionEnrichment) error {
+func (h *Handler) publishPositionEvent(
+	ctx context.Context,
+	req gpsIngestRequest,
+	recordedAt time.Time,
+	enrichment positionEnrichment,
+	alerts []map[string]interface{},
+) error {
 	channel := strings.TrimSpace(h.config.PositionsChannel)
 	if channel == "" {
 		channel = "gps:stream"
 	}
 
+	var primaryAlert map[string]interface{}
+	if len(alerts) > 0 {
+		primaryAlert = alerts[0]
+	}
+
 	payload := map[string]interface{}{
-		"vehicle_id":  req.VehicleID,
-		"lat":         req.Lat,
-		"lng":         req.Lng,
-		"speed_kmh":   enrichment.SpeedKmh,
-		"location":    enrichment.Location,
-		"recorded_at": recordedAt.UTC().Format(time.RFC3339),
+		"vehicle_id":   req.VehicleID,
+		"lat":          req.Lat,
+		"lng":          req.Lng,
+		"speed_kmh":    enrichment.SpeedKmh,
+		"status":       strings.TrimSpace(req.Status),
+		"panic_button": req.PanicButton != nil && *req.PanicButton,
+		"location":     enrichment.Location,
+		"alert":        primaryAlert,
+		"recorded_at":  recordedAt.UTC().Format(time.RFC3339),
 	}
 
 	data, err := json.Marshal(payload)
@@ -320,12 +373,13 @@ func (h *Handler) cacheRecentCoordinate(ctx context.Context, req gpsIngestReques
 	}
 
 	payload := map[string]interface{}{
-		"vehicle_id":  req.VehicleID,
-		"lat":         req.Lat,
-		"lng":         req.Lng,
-		"speed_kmh":   enrichment.SpeedKmh,
-		"location":    enrichment.Location,
-		"recorded_at": recordedAt.UTC().Format(time.RFC3339),
+		"vehicle_id":   req.VehicleID,
+		"lat":          req.Lat,
+		"lng":          req.Lng,
+		"speed_kmh":    enrichment.SpeedKmh,
+		"panic_button": req.PanicButton != nil && *req.PanicButton,
+		"location":     enrichment.Location,
+		"recorded_at":  recordedAt.UTC().Format(time.RFC3339),
 	}
 
 	data, err := json.Marshal(payload)
@@ -333,7 +387,12 @@ func (h *Handler) cacheRecentCoordinate(ctx context.Context, req gpsIngestReques
 		return err
 	}
 
-	return h.redis.Set(ctx, recentKey, data, ttl).Err()
+	if err := h.redis.Set(ctx, recentKey, data, ttl).Err(); err != nil {
+		return err
+	}
+
+	lastKey := fmt.Sprintf("gps:last:%s", req.VehicleID)
+	return h.redis.Set(ctx, lastKey, data, 24*time.Hour).Err()
 }
 
 func (h *Handler) persistHistoricalCoordinate(ctx context.Context, req gpsIngestRequest, recordedAt time.Time, enrichment positionEnrichment) error {
@@ -389,10 +448,21 @@ func EnsureSchema(ctx context.Context, db *pgxpool.Pool) error {
 		CREATE TABLE IF NOT EXISTS vehicles (
 			id BIGSERIAL PRIMARY KEY,
 			vehicle_id TEXT NOT NULL UNIQUE,
+			imei TEXT,
 			lat DOUBLE PRECISION NOT NULL,
 			lng DOUBLE PRECISION NOT NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
+
+		ALTER TABLE vehicles
+		ADD COLUMN IF NOT EXISTS imei TEXT;
+
+		UPDATE vehicles
+		SET imei = CONCAT('86', LPAD(id::text, 13, '0'))
+		WHERE imei IS NULL OR BTRIM(imei) = '';
+
+		ALTER TABLE vehicles
+		ALTER COLUMN imei SET NOT NULL;
 
 		CREATE TABLE IF NOT EXISTS gps_locations (
 			id BIGSERIAL PRIMARY KEY,
@@ -423,6 +493,9 @@ func EnsureSchema(ctx context.Context, db *pgxpool.Pool) error {
 
 		CREATE INDEX IF NOT EXISTS idx_vehicles_vehicle_id
 		ON vehicles (vehicle_id);
+
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_imei_unique
+		ON vehicles (imei);
 	`)
 	return err
 }
@@ -461,7 +534,15 @@ func (h *Handler) enrichPosition(ctx context.Context, req gpsIngestRequest) posi
 		SpeedKmh: sanitizeSpeed(req.SpeedKmh),
 	}
 
-	location, err := h.geocoder.Reverse(ctx, req.Lat, req.Lng)
+	// Keep ingestion fast under load: only a fraction of events attempt reverse geocoding.
+	if rand.Float64() > geocodeSampleRate {
+		return enrichment
+	}
+
+	geocodeCtx, cancel := context.WithTimeout(ctx, geocodeTimeout)
+	defer cancel()
+
+	location, err := h.geocoder.Reverse(geocodeCtx, req.Lat, req.Lng)
 	if err == nil {
 		enrichment.Location = location
 	}
@@ -481,6 +562,127 @@ func sanitizeSpeed(value *float64) float64 {
 		return 220
 	}
 	return speed
+}
+
+func (h *Handler) detectStoppedAlert(ctx context.Context, req gpsIngestRequest, recordedAt time.Time) map[string]interface{} {
+	key := fmt.Sprintf("gps:last:%s", req.VehicleID)
+	raw, err := h.redis.Get(ctx, key).Result()
+	if err != nil && err != redis.Nil {
+		return nil
+	}
+
+	type previousPosition struct {
+		Lat        float64 `json:"lat"`
+		Lng        float64 `json:"lng"`
+		RecordedAt string  `json:"recorded_at"`
+	}
+
+	if raw == "" {
+		return nil
+	}
+
+	var previous previousPosition
+	if err := json.Unmarshal([]byte(raw), &previous); err != nil {
+		return nil
+	}
+
+	previousTime, err := time.Parse(time.RFC3339, previous.RecordedAt)
+	if err != nil {
+		return nil
+	}
+
+	if !isSameCoordinate(previous.Lat, previous.Lng, req.Lat, req.Lng) {
+		return nil
+	}
+
+	if recordedAt.Sub(previousTime) < time.Minute {
+		return nil
+	}
+
+	alertKey := fmt.Sprintf("alert:stopped:%s:%.5f:%.5f", req.VehicleID, req.Lat, req.Lng)
+	created, err := h.redis.SetNX(ctx, alertKey, "1", 2*time.Minute).Result()
+	if err != nil || !created {
+		return nil
+	}
+
+	return map[string]interface{}{
+		"type":        "Vehiculo Detenido",
+		"vehicle_id":  req.VehicleID,
+		"lat":         req.Lat,
+		"lng":         req.Lng,
+		"detected_at": recordedAt.UTC().Format(time.RFC3339),
+		"message":     "El vehiculo mantiene la misma coordenada por mas de 1 minuto",
+	}
+}
+
+func (h *Handler) detectOverspeedAlert(ctx context.Context, req gpsIngestRequest, speedKmh float64, recordedAt time.Time) map[string]interface{} {
+	if speedKmh <= 100 {
+		return nil
+	}
+
+	alertKey := fmt.Sprintf("alert:overspeed:%s", req.VehicleID)
+	created, err := h.redis.SetNX(ctx, alertKey, "1", 30*time.Second).Result()
+	if err != nil || !created {
+		return nil
+	}
+
+	return map[string]interface{}{
+		"type":        "Exceso de Velocidad",
+		"vehicle_id":  req.VehicleID,
+		"lat":         req.Lat,
+		"lng":         req.Lng,
+		"speed_kmh":   speedKmh,
+		"limit_kmh":   100,
+		"detected_at": recordedAt.UTC().Format(time.RFC3339),
+		"message":     "El vehiculo supera el limite de 100 km/h",
+	}
+}
+
+func (h *Handler) detectPanicButtonAlert(ctx context.Context, req gpsIngestRequest, recordedAt time.Time) map[string]interface{} {
+	if req.PanicButton == nil || !*req.PanicButton {
+		return nil
+	}
+
+	alertKey := fmt.Sprintf("alert:panic:%s", req.VehicleID)
+	created, err := h.redis.SetNX(ctx, alertKey, "1", 45*time.Second).Result()
+	if err != nil || !created {
+		return nil
+	}
+
+	return map[string]interface{}{
+		"type":        "Boton de Panico",
+		"vehicle_id":  req.VehicleID,
+		"lat":         req.Lat,
+		"lng":         req.Lng,
+		"detected_at": recordedAt.UTC().Format(time.RFC3339),
+		"message":     "El conductor activo el boton de panico",
+	}
+}
+
+func (h *Handler) publishAlert(ctx context.Context, payload map[string]interface{}) {
+	channel := strings.TrimSpace(h.config.AlertsChannel)
+	if channel == "" {
+		channel = "alerts:stream"
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	_ = h.redis.Publish(ctx, channel, data).Err()
+}
+
+func isSameCoordinate(latA, lngA, latB, lngB float64) bool {
+	const epsilon = 0.00001
+	return math.Abs(latA-latB) <= epsilon && math.Abs(lngA-lngB) <= epsilon
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {

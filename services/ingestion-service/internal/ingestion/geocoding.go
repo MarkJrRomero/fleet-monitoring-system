@@ -125,27 +125,16 @@ func (g *ReverseGeocoder) Reverse(ctx context.Context, lat, lng float64) (*Rever
 }
 
 func (g *ReverseGeocoder) waitTurn(ctx context.Context) error {
-	for {
-		g.mu.Lock()
-		now := time.Now()
-		wait := g.nextAllowedAt.Sub(now)
-		if wait <= 0 {
-			g.nextAllowedAt = now.Add(g.minInterval)
-			g.mu.Unlock()
-			return nil
-		}
-		g.mu.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return ctx.Err()
-		case <-timer.C:
-		}
+	now := time.Now()
+	if now.Before(g.nextAllowedAt) {
+		return context.DeadlineExceeded
 	}
+
+	g.nextAllowedAt = now.Add(g.minInterval)
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

@@ -45,6 +45,11 @@ func main() {
 		PositionsChannel:    cfg.RedisPositionsChannel,
 		NominatimBaseURL:    cfg.NominatimBaseURL,
 		NominatimUserAgent:  cfg.NominatimUserAgent,
+		AlertsChannel:       cfg.AlertsChannel,
+		RoutingServiceURL:   cfg.RoutingServiceURL,
+		RetryQueueSize:      cfg.RetryQueueSize,
+		CBFailureThreshold:  cfg.CBFailureThreshold,
+		CBResetSeconds:      cfg.CBResetSeconds,
 	})
 
 	mux := http.NewServeMux()
@@ -87,6 +92,11 @@ type config struct {
 	RedisPositionsChannel string
 	NominatimBaseURL      string
 	NominatimUserAgent    string
+	AlertsChannel         string
+	RoutingServiceURL     string
+	RetryQueueSize        int
+	CBFailureThreshold    int
+	CBResetSeconds        int
 }
 
 func loadConfig() config {
@@ -121,6 +131,11 @@ func loadConfig() config {
 		RedisPositionsChannel: envString("REDIS_POSITIONS_CHANNEL", "gps:stream"),
 		NominatimBaseURL:      envString("NOMINATIM_REVERSE_URL", "https://nominatim.openstreetmap.org/reverse"),
 		NominatimUserAgent:    envString("NOMINATIM_USER_AGENT", "fleet-monitoring-system/1.0 (dev)"),
+		AlertsChannel:         envString("ALERTS_CHANNEL", "alerts:stream"),
+		RoutingServiceURL:     envString("ROUTING_SERVICE_URL", "http://routing-service:8095"),
+		RetryQueueSize:        envInt("INGESTION_RETRY_QUEUE_SIZE", 1000),
+		CBFailureThreshold:    envInt("INGESTION_CB_FAILURE_THRESHOLD", 3),
+		CBResetSeconds:        envInt("INGESTION_CB_RESET_SECONDS", 30),
 	}
 }
 

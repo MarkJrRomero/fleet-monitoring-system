@@ -4,6 +4,7 @@ import { ProtectedRoute } from '../../features/auth/components/ProtectedRoute';
 import { DashboardPage } from '../../features/dashboard/pages/DashboardPage';
 import { AdminPage } from '../../features/admin/pages/AdminPage';
 import { SimulationPage } from '../../features/simulation/pages/SimulationPage';
+import { VehiclesPage } from '../../features/vehicles/pages/VehiclesPage';
 import { ForbiddenPage } from '../../shared/pages/ForbiddenPage';
 
 export function AppRouter() {
@@ -35,6 +36,15 @@ export function AppRouter() {
           element={
             <ProtectedRoute>
               <SimulationPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/vehiculos"
+          element={
+            <ProtectedRoute>
+              <VehiclesPage />
             </ProtectedRoute>
           }
         />
