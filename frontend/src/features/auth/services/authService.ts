@@ -17,6 +17,9 @@ type JwtPayload = {
 
 const ACCESS_TOKEN_KEY = 'fleet_access_token';
 const REFRESH_TOKEN_KEY = 'fleet_refresh_token';
+const SESSION_EXPIRES_AT_KEY = 'fleet_session_expires_at';
+const MIN_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
+const ACCESS_TOKEN_SKEW_MS = 30 * 1000;
 
 const AUTH_CONFIG = {
   tokenUrl: 'http://localhost:8080/realms/fleet-monitoring/protocol/openid-connect/token',
@@ -44,11 +47,18 @@ function saveTokens(data: TokenResponse) {
   if (data.refresh_token) {
     localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
   }
+
+  const payload = parseJwt(data.access_token);
+  const tokenExpMs = payload?.exp ? payload.exp * 1000 : 0;
+  const minimumSessionMs = Date.now() + MIN_SESSION_DURATION_MS;
+  const sessionExpiresAt = Math.max(minimumSessionMs, tokenExpMs);
+  localStorage.setItem(SESSION_EXPIRES_AT_KEY, String(sessionExpiresAt));
 }
 
 export function clearSession() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
 }
 
 export function getAccessToken() {
@@ -66,13 +76,46 @@ export function isAuthenticated() {
     return false;
   }
 
+  const sessionExpiresAt = Number(localStorage.getItem(SESSION_EXPIRES_AT_KEY) || '0');
+  if (!Number.isFinite(sessionExpiresAt) || sessionExpiresAt <= Date.now()) {
+    return false;
+  }
+
+  return true;
+}
+
+function isAccessTokenValid() {
+  const token = getAccessToken();
+  if (!token) {
+    return false;
+  }
+
   const payload = parseJwt(token);
 
   if (!payload?.exp) {
     return false;
   }
 
-  return payload.exp * 1000 > Date.now();
+  return payload.exp * 1000 > Date.now() + ACCESS_TOKEN_SKEW_MS;
+}
+
+export async function ensureSession() {
+  if (!isAuthenticated()) {
+    clearSession();
+    return false;
+  }
+
+  if (isAccessTokenValid()) {
+    return true;
+  }
+
+  try {
+    await refreshSession();
+    return true;
+  } catch {
+    clearSession();
+    return false;
+  }
 }
 
 export function getUsername() {

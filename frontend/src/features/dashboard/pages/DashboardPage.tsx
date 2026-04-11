@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Car, CirclePause } from 'lucide-react';
 import { CircleMarker, MapContainer, Popup, TileLayer } from 'react-leaflet';
 import { useMap } from 'react-leaflet/hooks';
 import MarkerClusterGroup from 'react-leaflet-cluster';
@@ -214,7 +215,6 @@ export function DashboardPage() {
   const [focusedPosition, setFocusedPosition] = useState<[number, number] | null>(null);
   const [statusPriority, setStatusPriority] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [isPositionsWsConnected, setIsPositionsWsConnected] = useState(false);
   const [flashingVehicleIds, setFlashingVehicleIds] = useState<Set<string>>(new Set());
   const previousVehicleSnapshotRef = useRef<Map<string, string>>(new Map());
   const flashTimeoutsRef = useRef<Map<string, number>>(new Map());
@@ -248,17 +248,9 @@ export function DashboardPage() {
   useEffect(() => {
     const ws = new WebSocket(POSITIONS_WS_URL);
 
-    ws.onopen = () => {
-      setIsPositionsWsConnected(true);
-    };
-
-    ws.onerror = () => {
-      setIsPositionsWsConnected(false);
-    };
-
-    ws.onclose = () => {
-      setIsPositionsWsConnected(false);
-    };
+    ws.onopen = () => {};
+    ws.onerror = () => {};
+    ws.onclose = () => {};
 
     ws.onmessage = (event) => {
       try {
@@ -270,7 +262,6 @@ export function DashboardPage() {
     };
 
     return () => {
-      setIsPositionsWsConnected(false);
       ws.close();
     };
   }, []);
@@ -459,7 +450,6 @@ export function DashboardPage() {
 
   const markers = useMemo(() => allVehicles, [allVehicles]);
   const mapCenter = useMemo<[number, number]>(() => [4.7110, -74.0721], []);
-  const isWsConnected = isPositionsWsConnected;
 
   const onAlertsScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
@@ -491,7 +481,7 @@ export function DashboardPage() {
 
   return (
     <AppShell
-      title="Fleet Dashboard"
+      title="Mapa en tiempo real y alertas de la flota"
       username={username}
       navItems={[
         { to: '/', label: 'Dashboard', icon: 'home', subtitle: 'Alertas y mapa', active: true },
@@ -499,15 +489,41 @@ export function DashboardPage() {
         { to: '/simulacion', label: 'Simulacion', icon: 'smart_toy', subtitle: 'Generador de flota' }
       ]}
       headerRight={
-        <div className="flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full bg-surface-container px-3 py-1">Vehiculos: {allVehicles.length}</span>
-          <span className="rounded-full bg-surface-container px-3 py-1">Alertas: {alertSummary.total}</span>
-          <span className="rounded-full bg-surface-container px-3 py-1">Detenidos: {alertSummary.stopped}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-on-surface">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/20 text-cyan-700">
+              <Car className="h-4 w-4" />
+            </span>
+            <div className="leading-tight">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-800">Vehiculos</p>
+              <p className="text-sm font-bold">{allVehicles.length}</p>
+            </div>
+          </div>
+
+          <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-on-surface">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/20 text-amber-700">
+              <AlertTriangle className="h-4 w-4" />
+            </span>
+            <div className="leading-tight">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800">Alertas</p>
+              <p className="text-sm font-bold">{alertSummary.total}</p>
+            </div>
+          </div>
+
+          <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-1.5 text-on-surface">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-500/20 text-rose-700">
+              <CirclePause className="h-4 w-4" />
+            </span>
+            <div className="leading-tight">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-800">Detenidos</p>
+              <p className="text-sm font-bold">{alertSummary.stopped}</p>
+            </div>
+          </div>
         </div>
       }
       onLogout={onLogout}
     >
-      <section className="h-[calc(100vh-110px)] overflow-hidden rounded-[22px] border border-outline-variant/15 bg-surface-container-low p-4 md:p-6">
+      <section className="h-[calc(100vh-110px)] overflow-hidden">
         <div className="grid h-full min-h-0 grid-cols-1 gap-4 xl:grid-cols-12">
           <div className="min-h-0 xl:col-span-5 xl:h-full">
             <article className="flex h-full min-h-0 max-h-full flex-col rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-4">
@@ -611,12 +627,6 @@ export function DashboardPage() {
                 </MarkerClusterGroup>
               </MapContainer>
 
-              <div className="absolute right-3 top-3 rounded-full bg-surface/85 p-2">
-                <span className="relative inline-flex h-2.5 w-2.5">
-                  <span className={`absolute inline-flex h-full w-full rounded-full opacity-70 ${isWsConnected ? 'animate-ping bg-emerald-400' : 'animate-ping bg-rose-400'}`} />
-                  <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${isWsConnected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                </span>
-              </div>
             </div>
           </article>
         </div>

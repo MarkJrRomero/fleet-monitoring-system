@@ -318,7 +318,23 @@ export function SimulationPage() {
 
   return (
     <AppShell
-      headerRight={<span>Vehiculos activos: {activeVehicles}</span>}
+      headerRight={
+        <div className="flex items-center">
+          <div
+            className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 ${simulationStatus.running ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-800' : 'border-slate-300 bg-slate-100 text-slate-700'}`}
+          >
+            <span
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${simulationStatus.running ? 'bg-emerald-500/20 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
+            >
+              <Activity className={`h-4 w-4 ${simulationStatus.running ? 'animate-pulse' : ''}`} />
+            </span>
+            <div className="leading-tight">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">Vehiculos activos</p>
+              <p className="text-sm font-bold">{formatNumber(activeVehicles)}</p>
+            </div>
+          </div>
+        </div>
+      }
       navItems={[
         { to: '/', label: 'Dashboard', icon: 'map', subtitle: 'Alertas y mapa' },
         { to: '/vehiculos', label: 'Vehiculos', icon: 'directions_car', subtitle: 'Tabla y creacion' },
