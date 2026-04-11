@@ -24,5 +24,30 @@ services:
       - ${KEYCLOAK_IMPORT_FILE}:/opt/keycloak/data/import/realm-export.json:ro
     restart: unless-stopped
 
+  redis:
+    container_name: fleet-redis
+    image: redis:7.2-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  postgres:
+    container_name: fleet-postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
 volumes:
   keycloak_data:
+  redis_data:
+  postgres_data:

@@ -6,6 +6,8 @@ Base del proyecto para monitoreo de flotas. Actualmente incluye el frontend inic
 
 - Frontend base en React + TypeScript
 - Keycloak en Docker para flujo de autenticación
+- Redis compartido para cache de microservicios
+- PostgreSQL compartido para persistencia de microservicios
 - Despliegue local con Docker Compose
 - Operación unificada con Makefile (`make up`, `make down`, `make logs`, etc.)
 
@@ -40,6 +42,8 @@ make up
 
 La app quedara disponible en `http://localhost:5173`.
 Keycloak quedara disponible en `http://localhost:8080`.
+Redis quedara disponible en `localhost:6379`.
+PostgreSQL quedara disponible en `localhost:5432`.
 
 Admin Console de Keycloak:
 - URL: `http://localhost:8080/admin`
@@ -56,7 +60,7 @@ make down
 
 | Comando | Descripcion |
 |---|---|
-| `make up` | Sube todo el stack (frontend + keycloak) |
+| `make up` | Sube todo el stack (frontend + keycloak + redis + postgres) |
 | `make down` | Baja todo el stack |
 | `make ps` | Muestra estado de servicios |
 | `make logs SERVICE=all` | Sigue logs de todos los servicios |
@@ -92,6 +96,8 @@ Variables clave actuales:
 - Microservicios (placeholders para siguientes iteraciones):
 	- `API_PORT`, `API_BASE_URL`
 	- `INGESTION_SERVICE_PORT`, `NOTIFICATION_SERVICE_PORT`
+	- `REDIS_URL`, `REDIS_PORT`
+	- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE`
 
 ## Flujo frontend con Make
 
@@ -106,5 +112,6 @@ make frontend-build
 - El comando operativo principal es `make up`.
 - Keycloak corre con `start-dev --import-realm` y carga el realm desde `.docker/keycloak/realm-export.json`.
 - Las credenciales admin de Keycloak y puertos se controlan en `.env`.
+- Redis y PostgreSQL se despliegan como infraestructura compartida para todos los microservicios.
 - A medida que se agreguen servicios en `services/` y `deployments/docker-compose.yml`, se levantaran automaticamente con el mismo flujo.
 - Objetivo: mantener una interfaz unica de operacion para todo el sistema.
