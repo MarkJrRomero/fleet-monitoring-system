@@ -9,6 +9,7 @@ Base del proyecto para monitoreo de flotas. Actualmente incluye el frontend inic
 - Redis compartido para cache de microservicios
 - PostgreSQL compartido para persistencia de microservicios
 - ClickHouse como capa de analitica historica
+- Apache Superset para dashboards y autoservicio BI
 - Microservicio de ingesta GPS (Go) con anti-duplicados y persistencia historica
 - Microservicio WebSocket (Go) para streaming de posiciones en tiempo real
 - Microservicio de vehiculos (Go) para catalogo y gestion de flota
@@ -50,6 +51,7 @@ Keycloak quedara disponible en `http://localhost:8080`.
 Redis quedara disponible en `localhost:6379`.
 PostgreSQL quedara disponible en `localhost:5432`.
 ClickHouse quedara disponible en `http://localhost:8123` (HTTP) y `localhost:9000` (native).
+Superset quedara disponible en `http://localhost:8087`.
 Servicio de ingesta quedara disponible en `http://localhost:8091`.
 Servicio websocket quedara disponible en `ws://localhost:8093/ws/positions`.
 Canal websocket de alertas quedara disponible en `ws://localhost:8093/ws/alerts`.
@@ -81,6 +83,38 @@ make down
 | `make build` | Rebuild de imagenes |
 | `make pull` | Pull de imagenes remotas |
 | `make env-init` | Crea `.env` local desde `.env.example` |
+
+## Apache Superset
+
+Superset se integra como capa analitica separada del dashboard operacional React.
+
+- URL: `http://localhost:8087`
+- Usuario admin: valor de `SUPERSET_ADMIN_USERNAME` (default: `admin`)
+- Password admin: valor de `SUPERSET_ADMIN_PASSWORD` (default: `admin`)
+- Base de metadatos: PostgreSQL dedicado (`superset-db`)
+- Conexion analitica registrada automaticamente hacia ClickHouse:
+
+```text
+clickhouse://default:clickhouse@clickhouse:8123/default
+```
+
+Implementacion incluida:
+
+- Servicio `superset` en Docker Compose.
+- Servicio `superset-db` para metadatos internos.
+- Imagen custom con drivers `clickhouse-connect`, `clickhouse-sqlalchemy` y `psycopg2-binary`.
+- Script de bootstrap `.docker/superset/superset_init.sh` que:
+	- ejecuta migraciones,
+	- crea el usuario administrador,
+	- inicializa roles/permisos,
+	- registra la conexion a ClickHouse.
+
+Nota para mapas geoespaciales:
+
+- Los charts `Deck.gl` requieren configurar `MAPBOX_API_KEY` en `.env` para renderizar el mapa base.
+- Si `MAPBOX_API_KEY` esta vacio, los puntos o celdas pueden verse sobre un fondo blanco aunque la consulta funcione correctamente.
+
+Para construir dashboards de sustentacion, consulta [docs/superset-dashboard-guide.md](docs/superset-dashboard-guide.md).
 
 ## Gestores visuales en Docker
 
@@ -217,6 +251,7 @@ make frontend-build
 - Las credenciales admin de Keycloak y puertos se controlan en `.env`.
 - Redis y PostgreSQL se despliegan como infraestructura compartida para todos los microservicios.
 - ClickHouse complementa a PostgreSQL: no reemplaza persistencia transaccional, separa consultas analiticas del flujo operacional.
+- Superset agrega una capa BI desacoplada para exploracion analitica, dashboards y reporting sin tocar el frontend operacional.
 - El servicio de ingesta crea automaticamente su tabla historica en PostgreSQL al iniciar.
 - El servicio de ingesta envia copia asincrona de coordenadas a ClickHouse por lotes usando variables `CLICKHOUSE_*`.
 - El websocket-service se suscribe al canal Redis `gps:stream` y retransmite eventos a clientes WebSocket.
@@ -229,6 +264,7 @@ Aunque el sistema puede operar solo con PostgreSQL, se integra ClickHouse para h
 
 - PostgreSQL: estado actual de vehiculos y operaciones transaccionales.
 - ClickHouse: historico masivo y consultas OLAP de alto rendimiento.
+- Superset: consumo analitico, dashboards ejecutivos y autoservicio sobre ClickHouse.
 
 Esto evita que reportes historicos pesados afecten la latencia de ingesta GPS en tiempo real.
 
@@ -236,3 +272,9 @@ Esto evita que reportes historicos pesados afecten la latencia de ingesta GPS en
 
 - ClickHouse ofrece alto rendimiento analitico con menor complejidad operativa en entorno local.
 - Si necesitas un entorno aun mas liviano, puedes mantener `CLICKHOUSE_ENABLED=false` y seguir con PostgreSQL como persistencia principal.
+
+## Justificacion tecnica de Superset
+
+- Escalabilidad: separar la visualizacion analitica en Superset del dashboard operacional React evita sobrecarga sobre el backend principal y protege la experiencia en tiempo real.
+- Stack tecnologico: la arquitectura queda alineada con patrones enterprise donde Superset se usa como capa BI sobre motores analiticos columnares como Druid y ClickHouse.
+- Valor de negocio: administradores y analistas pueden crear reportes personalizados sin depender de nuevos desarrollos en frontend o backend.

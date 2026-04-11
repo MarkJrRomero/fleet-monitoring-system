@@ -34,11 +34,54 @@ services:
     ports:
       - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
       - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
+    volumes:
+      - ../.docker/clickhouse/users.d/memory-tuning.xml:/etc/clickhouse-server/users.d/memory-tuning.xml:ro
     ulimits:
       nofile:
         soft: 262144
         hard: 262144
-    mem_limit: 1024m
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-2048m}
+    restart: unless-stopped
+
+  superset-db:
+    container_name: fleet-superset-db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${SUPERSET_DB_NAME}
+      POSTGRES_USER: ${SUPERSET_DB_USER}
+      POSTGRES_PASSWORD: ${SUPERSET_DB_PASSWORD}
+    volumes:
+      - superset_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  superset:
+    container_name: fleet-superset
+    build:
+      context: ../.docker/superset
+      dockerfile: Dockerfile
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+      SUPERSET_ADMIN_USERNAME: ${SUPERSET_ADMIN_USERNAME}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD}
+      SUPERSET_ADMIN_FIRSTNAME: ${SUPERSET_ADMIN_FIRSTNAME}
+      SUPERSET_ADMIN_LASTNAME: ${SUPERSET_ADMIN_LASTNAME}
+      SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL}
+      SUPERSET_DB_HOST: superset-db
+      SUPERSET_DB_PORT: 5432
+      SUPERSET_DB_NAME: ${SUPERSET_DB_NAME}
+      SUPERSET_DB_USER: ${SUPERSET_DB_USER}
+      SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD}
+      SUPERSET_CLICKHOUSE_URI: clickhouse://default:${CLICKHOUSE_PASSWORD}@clickhouse:${CLICKHOUSE_HTTP_PORT:-8123}/default
+      SUPERSET_CLICKHOUSE_DB_DISPLAY_NAME: ${SUPERSET_CLICKHOUSE_DB_DISPLAY_NAME:-ClickHouse Fleet Analytics}
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+    ports:
+      - "${SUPERSET_PORT:-8087}:8088"
+    depends_on:
+      - superset-db
+      - clickhouse
+    command: ["/bin/sh", "-c", "/app/superset_init.sh && /usr/bin/run-server.sh"]
+    volumes:
+      - superset_home:/app/superset_home
     restart: unless-stopped
 
   redis:
@@ -167,3 +210,5 @@ volumes:
   keycloak_data:
   redis_data:
   postgres_data:
+  superset_postgres_data:
+  superset_home:
