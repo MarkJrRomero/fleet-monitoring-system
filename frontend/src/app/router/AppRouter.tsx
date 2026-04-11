@@ -3,6 +3,7 @@ import { LoginPage } from '../../features/auth/pages/LoginPage';
 import { ProtectedRoute } from '../../features/auth/components/ProtectedRoute';
 import { DashboardPage } from '../../features/dashboard/pages/DashboardPage';
 import { AdminPage } from '../../features/admin/pages/AdminPage';
+import { SimulationPage } from '../../features/simulation/pages/SimulationPage';
 import { ForbiddenPage } from '../../shared/pages/ForbiddenPage';
 
 export function AppRouter() {
@@ -25,6 +26,15 @@ export function AppRouter() {
           element={
             <ProtectedRoute>
               <AdminPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/simulacion"
+          element={
+            <ProtectedRoute>
+              <SimulationPage />
             </ProtectedRoute>
           }
         />

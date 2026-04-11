@@ -47,6 +47,67 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  ingestion-service:
+    container_name: fleet-ingestion-service
+    build:
+      context: ../services/ingestion-service
+      dockerfile: Dockerfile
+    environment:
+      INGESTION_SERVICE_PORT: ${INGESTION_SERVICE_PORT}
+      INGESTION_RECENT_TTL_SECONDS: ${INGESTION_RECENT_TTL_SECONDS}
+      INGESTION_DEDUPE_WINDOW_SECONDS: ${INGESTION_DEDUPE_WINDOW_SECONDS}
+      NOMINATIM_REVERSE_URL: ${NOMINATIM_REVERSE_URL}
+      NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT}
+      REDIS_URL: ${REDIS_URL}
+      REDIS_POSITIONS_CHANNEL: ${REDIS_POSITIONS_CHANNEL}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_SSLMODE: ${POSTGRES_SSLMODE}
+    ports:
+      - "${INGESTION_SERVICE_PORT}:8091"
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  websocket-service:
+    container_name: fleet-websocket-service
+    build:
+      context: ../services/websocket-service
+      dockerfile: Dockerfile
+    environment:
+      WEBSOCKET_SERVICE_PORT: ${WEBSOCKET_SERVICE_PORT}
+      REDIS_URL: ${REDIS_URL}
+      REDIS_POSITIONS_CHANNEL: ${REDIS_POSITIONS_CHANNEL}
+    ports:
+      - "${WEBSOCKET_SERVICE_PORT}:8093"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  vehicle-service:
+    container_name: fleet-vehicle-service
+    build:
+      context: ../services/vehicle-service
+      dockerfile: Dockerfile
+    environment:
+      VEHICLE_SERVICE_PORT: ${VEHICLE_SERVICE_PORT}
+      INGESTION_BASE_URL: ${INGESTION_BASE_URL}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_SSLMODE: ${POSTGRES_SSLMODE}
+    ports:
+      - "${VEHICLE_SERVICE_PORT}:8094"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
 volumes:
   keycloak_data:
   redis_data:
