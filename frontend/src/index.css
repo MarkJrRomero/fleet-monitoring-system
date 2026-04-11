@@ -1,33 +1,27 @@
-:root {
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  color: #0f172a;
-  background-color: #f8fafc;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply m-0 bg-surface font-body text-on-surface antialiased;
+  }
 }
 
-* {
-  box-sizing: border-box;
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
-body {
-  margin: 0;
+.geometric-bg {
+  background-color: #f8f9ff;
+  background-image: radial-gradient(#d2e4ff 0.5px, transparent 0.5px);
+  background-size: 24px 24px;
 }
 
-.app {
-  min-height: 100vh;
-  display: grid;
-  place-content: center;
-  text-align: center;
-  gap: 0.5rem;
-  padding: 2rem;
+.brand-shadow {
+  box-shadow: 0 20px 40px rgba(0, 52, 94, 0.04);
 }
 
-h1 {
-  margin: 0;
-  font-size: 2.5rem;
-}
-
-p {
-  margin: 0;
-  font-size: 1rem;
-  color: #334155;
+.input-transition {
+  transition: all 0.2s ease-in-out;
 }
