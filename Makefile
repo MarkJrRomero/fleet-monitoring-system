@@ -7,7 +7,11 @@ ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 FRONTEND_DIR := $(ROOT_DIR)/frontend
 DEPLOYMENTS_DIR := $(ROOT_DIR)/deployments
 COMPOSE_FILE := $(DEPLOYMENTS_DIR)/docker-compose.yml
-SERVICE ?= frontend
+KEYCLOAK_REALM_FILE := $(ROOT_DIR)/.docker/keycloak/realm-export.json
+ENV_FILE := $(ROOT_DIR)/.env
+ENV_TEMPLATE := $(ROOT_DIR)/.env.example
+COMPOSE_ARGS := --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)"
+SERVICE ?= all
 
 COMPOSE_CMD := $(shell \
 	if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then \
@@ -27,7 +31,7 @@ endef
 .PHONY: help doctor \
 	frontend-install frontend-dev frontend-build frontend-preview \
 	compose-config compose-build compose-up compose-down compose-stop compose-restart compose-ps compose-logs compose-pull \
-	deploy undeploy up down stop restart ps logs build pull
+	deploy undeploy up down stop restart ps logs build pull env-init
 
 help: ## Lista los comandos disponibles
 	@echo ""
@@ -37,13 +41,25 @@ help: ## Lista los comandos disponibles
 	@echo ""
 	@echo "Ejemplo: make compose-up"
 
+env-init: ## Crea .env local desde .env.example (si no existe)
+	@test -f "$(ENV_TEMPLATE)" || { echo "[ERROR] Missing env template: $(ENV_TEMPLATE)"; exit 1; }
+	@if [ -f "$(ENV_FILE)" ]; then \
+		echo "[INFO] .env already exists"; \
+	else \
+		cp "$(ENV_TEMPLATE)" "$(ENV_FILE)"; \
+		echo "[OK] Created .env from .env.example"; \
+	fi
+
 doctor: ## Valida prerrequisitos de herramientas y archivos
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_CMD,npm)
 	$(call REQUIRE_COMPOSE)
+	@test -f "$(ENV_TEMPLATE)" || { echo "[ERROR] Missing env template: $(ENV_TEMPLATE)"; exit 1; }
+	@test -f "$(ENV_FILE)" || { echo "[ERROR] Missing .env file. Run: make env-init"; exit 1; }
 	@test -f "$(COMPOSE_FILE)" || { echo "[ERROR] Missing compose file: $(COMPOSE_FILE)"; exit 1; }
 	@test -f "$(FRONTEND_DIR)/package.json" || { echo "[ERROR] Missing frontend package.json"; exit 1; }
-	@echo "[OK] Environment is ready"
+	@test -f "$(KEYCLOAK_REALM_FILE)" || { echo "[ERROR] Missing keycloak realm export: $(KEYCLOAK_REALM_FILE)"; exit 1; }
+	@echo "[OK] Environment is ready (.env loaded from $(ENV_FILE))"
 
 frontend-install: ## Instala dependencias del frontend
 	$(call REQUIRE_CMD,npm)
@@ -64,55 +80,55 @@ frontend-preview: ## Levanta preview de build de frontend
 compose-config: ## Valida y muestra configuracion final de Docker Compose
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
-	@$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" config
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) config
 
 compose-build: ## Construye imagenes de servicios definidos en compose
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
-	@$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" build
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) build
 
 compose-up: ## Despliega servicios en segundo plano (build incluido)
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
-	@$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" up --build -d
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) up --build -d
 
 compose-down: ## Elimina servicios, redes y recursos de compose
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
-	@$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" down
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) down
 
 compose-stop: ## Detiene servicios sin eliminarlos
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
-	@$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" stop
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) stop
 
 compose-restart: ## Reinicia un servicio (SERVICE=<nombre>) o todos
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
 	@if [ "$(SERVICE)" = "all" ]; then \
-		$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" restart; \
+		$(COMPOSE_CMD) $(COMPOSE_ARGS) restart; \
 	else \
-		$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" restart "$(SERVICE)"; \
+		$(COMPOSE_CMD) $(COMPOSE_ARGS) restart "$(SERVICE)"; \
 	fi
 
 compose-ps: ## Muestra estado de servicios desplegados
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
-	@$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" ps
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) ps
 
 compose-logs: ## Sigue logs de un servicio (SERVICE=<nombre>) o todos
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
 	@if [ "$(SERVICE)" = "all" ]; then \
-		$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" logs -f --tail=200; \
+		$(COMPOSE_CMD) $(COMPOSE_ARGS) logs -f --tail=200; \
 	else \
-		$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" logs -f --tail=200 "$(SERVICE)"; \
+		$(COMPOSE_CMD) $(COMPOSE_ARGS) logs -f --tail=200 "$(SERVICE)"; \
 	fi
 
 compose-pull: ## Hace pull de imagenes remotas definidas en compose
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
-	@$(COMPOSE_CMD) -f "$(COMPOSE_FILE)" pull
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) pull
 
 deploy: doctor compose-up ## Flujo recomendado de despliegue local
 
@@ -125,11 +141,11 @@ down: undeploy ## Baja todo el stack
 
 stop: compose-stop ## Detiene todo el stack sin eliminar recursos
 
-restart: compose-restart ## Reinicia servicios (SERVICE=frontend o SERVICE=all)
+restart: compose-restart ## Reinicia servicios (SERVICE=frontend, keycloak o all)
 
 ps: compose-ps ## Lista estado de servicios
 
-logs: compose-logs ## Sigue logs (SERVICE=frontend o SERVICE=all)
+logs: compose-logs ## Sigue logs (SERVICE=frontend, keycloak o SERVICE=all)
 
 build: compose-build ## Rebuild de imagenes del stack
 
