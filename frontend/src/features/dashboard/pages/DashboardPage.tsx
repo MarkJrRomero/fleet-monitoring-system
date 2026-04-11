@@ -10,6 +10,7 @@ import { clearSession, getUsername } from '../../auth/services/authService';
 import { POSITIONS_WS_URL, VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { getMainNavItems } from '../../../shared/config/navItems';
 import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
+import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { AppShell } from '../../../shared/layouts/AppShell';
 import { getVehicleMapColor, getVehicleStatusLabel } from '../utils/vehicleStatus';
 
@@ -208,6 +209,11 @@ function AnimatedVehicleMarker({
 }
 
 export function DashboardPage() {
+  usePageSeo({
+    title: 'SMTF | Dashboard',
+    description: 'Mapa en tiempo real, alertas activas y estado de la flota.'
+  });
+
   const username = getUsername();
   const [events, setEvents] = useState<PositionEvent[]>([]);
   const [vehiclesCatalog, setVehiclesCatalog] = useState<VehicleCatalog[]>([]);

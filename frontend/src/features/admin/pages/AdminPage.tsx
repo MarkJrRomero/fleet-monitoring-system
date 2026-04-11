@@ -1,4 +1,11 @@
+import { usePageSeo } from '../../../shared/hooks/usePageSeo';
+
 export function AdminPage() {
+  usePageSeo({
+    title: 'SMTF | Admin',
+    description: 'Panel administrativo para gestion avanzada del sistema SMTF.'
+  });
+
   return (
     <main className="min-h-screen bg-surface p-6 md:p-10">
       <section className="mx-auto grid w-full max-w-3xl gap-3 rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-lg shadow-primary/5">

@@ -1,9 +1,15 @@
 import { FormEvent, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { isAuthenticated, loginViaApi } from '../services/authService';
 
 export function LoginPage() {
+  usePageSeo({
+    title: 'SMTF | Inicio de sesion',
+    description: 'Accede al panel de monitoreo de flotas SMTF.'
+  });
+
   const [username, setUsername] = useState('admin_test');
   const [password, setPassword] = useState('admin123');
   const [showPassword, setShowPassword] = useState(false);

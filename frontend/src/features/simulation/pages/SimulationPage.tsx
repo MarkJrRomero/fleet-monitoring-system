@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, Database, Radio, Send, Timer } from 'lucide-re
 import { clearSession, getUsername } from '../../auth/services/authService';
 import { getMainNavItems } from '../../../shared/config/navItems';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
+import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { AppShell } from '../../../shared/layouts/AppShell';
 import { confirmAction, showError, showSuccess } from '../../../shared/ui/alerts';
 
@@ -51,6 +52,11 @@ const defaultSimulationStatus: SimulationStatus = {
 };
 
 export function SimulationPage() {
+  usePageSeo({
+    title: 'SMTF | Simulacion',
+    description: 'Control y trazabilidad de la simulacion de telemetria de flota.'
+  });
+
   const username = getUsername();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [simulationStatus, setSimulationStatus] = useState<SimulationStatus>(defaultSimulationStatus);

@@ -1,4 +1,11 @@
+import { usePageSeo } from '../hooks/usePageSeo';
+
 export function ForbiddenPage() {
+  usePageSeo({
+    title: 'SMTF | Acceso denegado',
+    description: 'No tienes permisos para acceder al modulo solicitado en SMTF.'
+  });
+
   return (
     <main className="min-h-screen bg-surface p-6 md:p-10">
       <section className="mx-auto grid w-full max-w-3xl gap-3 rounded-2xl border border-error/20 bg-surface-container-lowest p-6 shadow-lg shadow-error/5">

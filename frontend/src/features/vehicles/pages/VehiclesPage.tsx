@@ -5,6 +5,7 @@ import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../../dashb
 import { getMainNavItems } from '../../../shared/config/navItems';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { StatusBadge } from '../../../shared/components/StatusBadge';
+import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { AppShell } from '../../../shared/layouts/AppShell';
 
 type Vehicle = {
@@ -22,6 +23,11 @@ type VehiclesResponse = {
 };
 
 export function VehiclesPage() {
+  usePageSeo({
+    title: 'SMTF | Vehiculos',
+    description: 'Listado y estado operativo de los vehiculos de la flota.'
+  });
+
   const username = getUsername();
   const pageSize = 10;
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
