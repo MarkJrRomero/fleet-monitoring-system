@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Car } from 'lucide-react';
 import { clearSession, getUsername } from '../../auth/services/authService';
+import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../../dashboard/utils/vehicleStatus';
+import { getMainNavItems } from '../../../shared/config/navItems';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
+import { StatusBadge } from '../../../shared/components/StatusBadge';
 import { AppShell } from '../../../shared/layouts/AppShell';
 
 type Vehicle = {
@@ -69,15 +73,19 @@ export function VehiclesPage() {
     <>
       <AppShell
         headerRight={
-          <div className="flex items-center gap-2">
-            <span>Total: {vehicles.length}</span>
+          <div className="flex items-center">
+            <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-on-surface">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-700">
+                <Car className="h-4 w-4" />
+              </span>
+              <div className="leading-tight">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-800">Vehiculos</p>
+                <p className="text-sm font-bold">{vehicles.length}</p>
+              </div>
+            </div>
           </div>
         }
-        navItems={[
-          { to: '/', label: 'Dashboard', icon: 'map', subtitle: 'Alertas y mapa' },
-          { to: '/vehiculos', label: 'Vehiculos', icon: 'directions_car', subtitle: 'Tabla y creacion', active: true },
-          { to: '/simulacion', label: 'Simulacion', icon: 'smart_toy', subtitle: 'Generador de flota' }
-        ]}
+        navItems={getMainNavItems('/vehiculos')}
         onLogout={onLogout}
         title="Modulo de vehiculos"
         username={username}
@@ -109,7 +117,12 @@ export function VehiclesPage() {
                   <tr key={vehicle.vehicle_id}>
                     <td className="px-4 py-3 text-sm font-semibold">{vehicle.vehicle_id}</td>
                     <td className="px-4 py-3 text-sm">{vehicle.imei || '--'}</td>
-                    <td className="px-4 py-3 text-sm">{vehicle.status}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <StatusBadge
+                        className={getVehicleStatusBadgeClasses(vehicle.status)}
+                        label={getVehicleStatusLabel(vehicle.status)}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-sm">{vehicle.lat.toFixed(5)}</td>
                     <td className="px-4 py-3 text-sm">{vehicle.lng.toFixed(5)}</td>
                     <td className="px-4 py-3 text-sm text-on-surface-variant">

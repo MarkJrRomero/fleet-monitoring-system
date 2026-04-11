@@ -17,16 +17,23 @@ import (
 )
 
 type Config struct {
-	RecentTTLSeconds    int
-	DedupeWindowSeconds int
-	PositionsChannel    string
-	NominatimBaseURL    string
-	NominatimUserAgent  string
-	AlertsChannel       string
-	RoutingServiceURL   string
-	RetryQueueSize      int
-	CBFailureThreshold  int
-	CBResetSeconds      int
+	RecentTTLSeconds        int
+	DedupeWindowSeconds     int
+	PositionsChannel        string
+	NominatimBaseURL        string
+	NominatimUserAgent      string
+	AlertsChannel           string
+	RoutingServiceURL       string
+	RetryQueueSize          int
+	CBFailureThreshold      int
+	CBResetSeconds          int
+	ClickHouseEnabled       bool
+	ClickHouseAddr          string
+	ClickHouseDatabase      string
+	ClickHouseUsername      string
+	ClickHousePassword      string
+	ClickHouseBatchSize     int
+	ClickHouseFlushInterval time.Duration
 }
 
 type Handler struct {
@@ -40,6 +47,7 @@ type Handler struct {
 	persistenceQueue   chan persistenceJob
 	routingQueue       chan routingJob
 	routingHTTPClient  *http.Client
+	clickHouseSink     *ClickHouseSink
 }
 
 type gpsIngestRequest struct {
@@ -99,6 +107,7 @@ func NewHandler(redisClient *redis.Client, dbPool *pgxpool.Pool, cfg Config) *Ha
 		config:            cfg,
 		geocoder:          NewReverseGeocoder(cfg.NominatimBaseURL, cfg.NominatimUserAgent),
 		routingHTTPClient: &http.Client{Timeout: 6 * time.Second},
+		clickHouseSink:    NewClickHouseSink(cfg),
 	}
 
 	h.initResilience(resilienceConfig{
@@ -177,6 +186,8 @@ func (h *Handler) IngestGPS(w http.ResponseWriter, r *http.Request) {
 		h.publishAlert(ctx, alertPayload)
 		h.routeWithResilience(ctx, alertPayload)
 	}
+
+	h.pushClickHouseEvent(req, recordedAt, enrichment, alerts)
 
 	writeJSON(w, http.StatusCreated, ingestResponse{
 		Status:    "almacenado",

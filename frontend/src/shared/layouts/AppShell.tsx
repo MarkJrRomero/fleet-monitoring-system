@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Car, ChevronDown, Home, LayoutDashboard, LogOut, Map, Menu, PanelLeftClose, PanelLeftOpen, Radar, X } from 'lucide-react';
 
-type NavItem = {
+export type NavItem = {
   to: string;
   label: string;
   icon: string;
@@ -110,9 +110,17 @@ export function AppShell({
         className={`fixed left-0 top-0 z-[1300] flex h-full w-72 -translate-x-full flex-col border-r border-outline-variant/20 bg-surface-container-lowest/95 p-4 transition-transform duration-300 lg:translate-x-0 ${desktopSidebarClass} ${isMobileSidebarOpen ? 'translate-x-0' : ''}`}
       >
         <div className="mb-8 flex items-start justify-between gap-3">
-          <div>
-            <p className="font-headline text-xl font-extrabold tracking-tight">SMTF</p>
-            <p className={`${isSidebarCollapsed ? 'text-xs text-on-surface-variant lg:hidden' : 'text-xs text-on-surface-variant'}`}>Centro de monitoreo</p>
+          <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'lg:justify-center' : ''}`}>
+            <img
+              src="/assets/logos/logo.png"
+              alt="Logo SMTF"
+              className="h-14 w-14 shrink-0 object-contain"
+              decoding="async"
+            />
+            <div className={isSidebarCollapsed ? 'lg:hidden' : ''}>
+              <p className="font-headline text-xl font-extrabold tracking-tight">SMTF</p>
+              <p className="text-xs text-on-surface-variant">Centro de monitoreo</p>
+            </div>
           </div>
 
           <div className="flex items-center gap-1">

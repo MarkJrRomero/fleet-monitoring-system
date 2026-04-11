@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, Database, Radio, Send, Timer } from 'lucide-react';
 import { clearSession, getUsername } from '../../auth/services/authService';
+import { getMainNavItems } from '../../../shared/config/navItems';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { AppShell } from '../../../shared/layouts/AppShell';
 import { confirmAction, showError, showSuccess } from '../../../shared/ui/alerts';
@@ -335,11 +336,7 @@ export function SimulationPage() {
           </div>
         </div>
       }
-      navItems={[
-        { to: '/', label: 'Dashboard', icon: 'map', subtitle: 'Alertas y mapa' },
-        { to: '/vehiculos', label: 'Vehiculos', icon: 'directions_car', subtitle: 'Tabla y creacion' },
-        { to: '/simulacion', label: 'Simulacion', icon: 'smart_toy', subtitle: 'Generador de flota', active: true }
-      ]}
+      navItems={getMainNavItems('/simulacion')}
       onLogout={onLogout}
       title="Modulo de Simulacion"
       username={username}

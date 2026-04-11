@@ -8,6 +8,7 @@ import 'react-leaflet-cluster/dist/assets/MarkerCluster.css';
 import 'react-leaflet-cluster/dist/assets/MarkerCluster.Default.css';
 import { clearSession, getUsername } from '../../auth/services/authService';
 import { POSITIONS_WS_URL, VEHICLE_BASE_URL } from '../../../shared/config/runtime';
+import { getMainNavItems } from '../../../shared/config/navItems';
 import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
 import { AppShell } from '../../../shared/layouts/AppShell';
 import { getVehicleMapColor, getVehicleStatusLabel } from '../utils/vehicleStatus';
@@ -483,11 +484,7 @@ export function DashboardPage() {
     <AppShell
       title="Mapa en tiempo real y alertas de la flota"
       username={username}
-      navItems={[
-        { to: '/', label: 'Dashboard', icon: 'home', subtitle: 'Alertas y mapa', active: true },
-        { to: '/vehiculos', label: 'Vehiculos', icon: 'directions_car', subtitle: 'Listado de vehículos' },
-        { to: '/simulacion', label: 'Simulacion', icon: 'smart_toy', subtitle: 'Generador de flota' }
-      ]}
+      navItems={getMainNavItems('/')}
       headerRight={
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-on-surface">

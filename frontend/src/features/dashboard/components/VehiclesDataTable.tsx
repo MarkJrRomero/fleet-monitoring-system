@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-table';
 import { useMemo, useState } from 'react';
 import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
+import { StatusBadge } from '../../../shared/components/StatusBadge';
 import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../utils/vehicleStatus';
 
 export type VehicleTableRow = {
@@ -49,11 +50,10 @@ export function VehiclesDataTable({ rows }: VehiclesDataTableProps) {
         cell: (info) => {
           const status = info.row.original.status;
           return (
-          <span
-            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold ${getVehicleStatusBadgeClasses(status)}`}
-          >
-            {getVehicleStatusLabel(status)}
-          </span>
+            <StatusBadge
+              className={getVehicleStatusBadgeClasses(status)}
+              label={getVehicleStatusLabel(status)}
+            />
           );
         }
       }),

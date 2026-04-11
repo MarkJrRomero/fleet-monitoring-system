@@ -40,16 +40,23 @@ func main() {
 	defer redisClient.Close()
 
 	h := ingestion.NewHandler(redisClient, db, ingestion.Config{
-		RecentTTLSeconds:    cfg.RecentTTLSeconds,
-		DedupeWindowSeconds: cfg.DedupeWindowSeconds,
-		PositionsChannel:    cfg.RedisPositionsChannel,
-		NominatimBaseURL:    cfg.NominatimBaseURL,
-		NominatimUserAgent:  cfg.NominatimUserAgent,
-		AlertsChannel:       cfg.AlertsChannel,
-		RoutingServiceURL:   cfg.RoutingServiceURL,
-		RetryQueueSize:      cfg.RetryQueueSize,
-		CBFailureThreshold:  cfg.CBFailureThreshold,
-		CBResetSeconds:      cfg.CBResetSeconds,
+		RecentTTLSeconds:        cfg.RecentTTLSeconds,
+		DedupeWindowSeconds:     cfg.DedupeWindowSeconds,
+		PositionsChannel:        cfg.RedisPositionsChannel,
+		NominatimBaseURL:        cfg.NominatimBaseURL,
+		NominatimUserAgent:      cfg.NominatimUserAgent,
+		AlertsChannel:           cfg.AlertsChannel,
+		RoutingServiceURL:       cfg.RoutingServiceURL,
+		RetryQueueSize:          cfg.RetryQueueSize,
+		CBFailureThreshold:      cfg.CBFailureThreshold,
+		CBResetSeconds:          cfg.CBResetSeconds,
+		ClickHouseEnabled:       cfg.ClickHouseEnabled,
+		ClickHouseAddr:          cfg.ClickHouseAddr,
+		ClickHouseDatabase:      cfg.ClickHouseDatabase,
+		ClickHouseUsername:      cfg.ClickHouseUsername,
+		ClickHousePassword:      cfg.ClickHousePassword,
+		ClickHouseBatchSize:     cfg.ClickHouseBatchSize,
+		ClickHouseFlushInterval: cfg.ClickHouseFlushInterval,
 	})
 
 	mux := http.NewServeMux()
@@ -84,19 +91,26 @@ func main() {
 }
 
 type config struct {
-	Port                  int
-	RedisAddr             string
-	PostgresDSN           string
-	RecentTTLSeconds      int
-	DedupeWindowSeconds   int
-	RedisPositionsChannel string
-	NominatimBaseURL      string
-	NominatimUserAgent    string
-	AlertsChannel         string
-	RoutingServiceURL     string
-	RetryQueueSize        int
-	CBFailureThreshold    int
-	CBResetSeconds        int
+	Port                    int
+	RedisAddr               string
+	PostgresDSN             string
+	RecentTTLSeconds        int
+	DedupeWindowSeconds     int
+	RedisPositionsChannel   string
+	NominatimBaseURL        string
+	NominatimUserAgent      string
+	AlertsChannel           string
+	RoutingServiceURL       string
+	RetryQueueSize          int
+	CBFailureThreshold      int
+	CBResetSeconds          int
+	ClickHouseEnabled       bool
+	ClickHouseAddr          string
+	ClickHouseDatabase      string
+	ClickHouseUsername      string
+	ClickHousePassword      string
+	ClickHouseBatchSize     int
+	ClickHouseFlushInterval time.Duration
 }
 
 func loadConfig() config {
@@ -123,19 +137,26 @@ func loadConfig() config {
 	)
 
 	return config{
-		Port:                  port,
-		RedisAddr:             redisAddr,
-		PostgresDSN:           postgresDSN,
-		RecentTTLSeconds:      envInt("INGESTION_RECENT_TTL_SECONDS", 60),
-		DedupeWindowSeconds:   envInt("INGESTION_DEDUPE_WINDOW_SECONDS", 15),
-		RedisPositionsChannel: envString("REDIS_POSITIONS_CHANNEL", "gps:stream"),
-		NominatimBaseURL:      envString("NOMINATIM_REVERSE_URL", "https://nominatim.openstreetmap.org/reverse"),
-		NominatimUserAgent:    envString("NOMINATIM_USER_AGENT", "fleet-monitoring-system/1.0 (dev)"),
-		AlertsChannel:         envString("ALERTS_CHANNEL", "alerts:stream"),
-		RoutingServiceURL:     envString("ROUTING_SERVICE_URL", "http://routing-service:8095"),
-		RetryQueueSize:        envInt("INGESTION_RETRY_QUEUE_SIZE", 1000),
-		CBFailureThreshold:    envInt("INGESTION_CB_FAILURE_THRESHOLD", 3),
-		CBResetSeconds:        envInt("INGESTION_CB_RESET_SECONDS", 30),
+		Port:                    port,
+		RedisAddr:               redisAddr,
+		PostgresDSN:             postgresDSN,
+		RecentTTLSeconds:        envInt("INGESTION_RECENT_TTL_SECONDS", 60),
+		DedupeWindowSeconds:     envInt("INGESTION_DEDUPE_WINDOW_SECONDS", 15),
+		RedisPositionsChannel:   envString("REDIS_POSITIONS_CHANNEL", "gps:stream"),
+		NominatimBaseURL:        envString("NOMINATIM_REVERSE_URL", "https://nominatim.openstreetmap.org/reverse"),
+		NominatimUserAgent:      envString("NOMINATIM_USER_AGENT", "fleet-monitoring-system/1.0 (dev)"),
+		AlertsChannel:           envString("ALERTS_CHANNEL", "alerts:stream"),
+		RoutingServiceURL:       envString("ROUTING_SERVICE_URL", "http://routing-service:8095"),
+		RetryQueueSize:          envInt("INGESTION_RETRY_QUEUE_SIZE", 1000),
+		CBFailureThreshold:      envInt("INGESTION_CB_FAILURE_THRESHOLD", 3),
+		CBResetSeconds:          envInt("INGESTION_CB_RESET_SECONDS", 30),
+		ClickHouseEnabled:       envBool("CLICKHOUSE_ENABLED", true),
+		ClickHouseAddr:          envString("CLICKHOUSE_ADDR", "clickhouse:9000"),
+		ClickHouseDatabase:      envString("CLICKHOUSE_DATABASE", "default"),
+		ClickHouseUsername:      envString("CLICKHOUSE_USERNAME", "default"),
+		ClickHousePassword:      envString("CLICKHOUSE_PASSWORD", ""),
+		ClickHouseBatchSize:     envInt("CLICKHOUSE_BATCH_SIZE", 100),
+		ClickHouseFlushInterval: time.Duration(envInt("CLICKHOUSE_FLUSH_INTERVAL_SECONDS", 3)) * time.Second,
 	}
 }
 
@@ -171,6 +192,22 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envBool(key string, fallback bool) bool {
+	value := strings.ToLower(strings.TrimSpace(envString(key, "")))
+	if value == "" {
+		return fallback
+	}
+
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func parseRedisAddr(redisURL string) string {

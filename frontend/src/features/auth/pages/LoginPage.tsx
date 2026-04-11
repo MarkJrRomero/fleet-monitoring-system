@@ -1,11 +1,12 @@
 import { FormEvent, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { LayoutDashboard, Lock, Mail } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { isAuthenticated, loginViaApi } from '../services/authService';
 
 export function LoginPage() {
   const [username, setUsername] = useState('admin_test');
   const [password, setPassword] = useState('admin123');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [bannerLoaded, setBannerLoaded] = useState(false);
@@ -36,8 +37,13 @@ export function LoginPage() {
           <div className="flex items-center justify-center px-8 py-10 sm:px-12 lg:px-16">
             <div className="w-full max-w-sm">
               <header className="mb-10 text-center">
-                <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
-                  <LayoutDashboard className="h-6 w-6" />
+                <div className="mb-4 flex justify-center">
+                  <img
+                    src="/assets/logos/logo.png"
+                    alt="Logo SMTF"
+                    className="h-24 w-24 object-contain"
+                    decoding="async"
+                  />
                 </div>
                 <h1 className="font-headline text-4xl font-black tracking-tight text-on-surface">Bienvenido</h1>
                 <p className="mt-1 text-sm text-on-surface-variant">Inicia sesion para acceder al panel de monitoreo.</p>
@@ -69,14 +75,22 @@ export function LoginPage() {
                     <input
                       id="password"
                       name="password"
-                      type="password"
+                      type={showPassword ? 'text' : 'password'}
                       autoComplete="current-password"
-                      className="block w-full rounded-full border border-outline-variant/40 bg-surface-container-low py-3 pl-11 pr-4 text-sm font-medium text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:bg-surface focus:outline-none"
+                      className="block w-full rounded-full border border-outline-variant/40 bg-surface-container-low py-3 pl-11 pr-11 text-sm font-medium text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:bg-surface focus:outline-none"
                       placeholder="Ingresa tu contrasena"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       required
                     />
+                    <button
+                      type="button"
+                      aria-label={showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'}
+                      className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-on-surface-variant/70 transition hover:bg-surface hover:text-on-surface"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
                 </label>
 

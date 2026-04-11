@@ -8,6 +8,7 @@ Base del proyecto para monitoreo de flotas. Actualmente incluye el frontend inic
 - Keycloak en Docker para flujo de autenticación
 - Redis compartido para cache de microservicios
 - PostgreSQL compartido para persistencia de microservicios
+- ClickHouse como capa de analitica historica
 - Microservicio de ingesta GPS (Go) con anti-duplicados y persistencia historica
 - Microservicio WebSocket (Go) para streaming de posiciones en tiempo real
 - Microservicio de vehiculos (Go) para catalogo y gestion de flota
@@ -48,6 +49,7 @@ La app quedara disponible en `http://localhost:5173`.
 Keycloak quedara disponible en `http://localhost:8080`.
 Redis quedara disponible en `localhost:6379`.
 PostgreSQL quedara disponible en `localhost:5432`.
+ClickHouse quedara disponible en `http://localhost:8123` (HTTP) y `localhost:9000` (native).
 Servicio de ingesta quedara disponible en `http://localhost:8091`.
 Servicio websocket quedara disponible en `ws://localhost:8093/ws/positions`.
 Canal websocket de alertas quedara disponible en `ws://localhost:8093/ws/alerts`.
@@ -150,6 +152,7 @@ Comportamiento:
 - Anti-duplicados por ventana temporal configurable (misma coordenada en misma ventana => se ignora)
 - Cache de coordenada reciente por vehiculo en Redis con TTL corto
 - Persistencia historica en PostgreSQL (`gps_locations`)
+- Push asincrono en lote hacia ClickHouse (`telemetry_history`) para analitica de largo plazo
 - Publicacion del evento en Redis channel (`gps:stream`) para consumo del websocket-service
 - Si un vehiculo envia la misma coordenada por mas de 1 minuto, se publica alerta `Vehiculo Detenido` en `alerts:stream`
 
@@ -213,7 +216,23 @@ make frontend-build
 - Keycloak corre con `start-dev --import-realm` y carga el realm desde `.docker/keycloak/realm-export.json`.
 - Las credenciales admin de Keycloak y puertos se controlan en `.env`.
 - Redis y PostgreSQL se despliegan como infraestructura compartida para todos los microservicios.
+- ClickHouse complementa a PostgreSQL: no reemplaza persistencia transaccional, separa consultas analiticas del flujo operacional.
 - El servicio de ingesta crea automaticamente su tabla historica en PostgreSQL al iniciar.
+- El servicio de ingesta envia copia asincrona de coordenadas a ClickHouse por lotes usando variables `CLICKHOUSE_*`.
 - El websocket-service se suscribe al canal Redis `gps:stream` y retransmite eventos a clientes WebSocket.
 - A medida que se agreguen servicios en `services/` y `deployments/docker-compose.yml`, se levantaran automaticamente con el mismo flujo.
 - Objetivo: mantener una interfaz unica de operacion para todo el sistema.
+
+## Decisiones tecnicas: ClickHouse + PostgreSQL
+
+Aunque el sistema puede operar solo con PostgreSQL, se integra ClickHouse para habilitar analitica de alto volumen en tiempo real:
+
+- PostgreSQL: estado actual de vehiculos y operaciones transaccionales.
+- ClickHouse: historico masivo y consultas OLAP de alto rendimiento.
+
+Esto evita que reportes historicos pesados afecten la latencia de ingesta GPS en tiempo real.
+
+## Desafios y soluciones
+
+- ClickHouse ofrece alto rendimiento analitico con menor complejidad operativa en entorno local.
+- Si necesitas un entorno aun mas liviano, puedes mantener `CLICKHOUSE_ENABLED=false` y seguir con PostgreSQL como persistencia principal.
