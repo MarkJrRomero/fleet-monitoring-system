@@ -457,7 +457,7 @@ export function DashboardPage() {
     return summary;
   }, [allVehicles]);
 
-  const markers = useMemo(() => allVehicles.slice(0, 400), [allVehicles]);
+  const markers = useMemo(() => allVehicles, [allVehicles]);
   const mapCenter = useMemo<[number, number]>(() => [4.7110, -74.0721], []);
   const isWsConnected = isPositionsWsConnected;
 
@@ -495,7 +495,7 @@ export function DashboardPage() {
       username={username}
       navItems={[
         { to: '/', label: 'Dashboard', icon: 'home', subtitle: 'Alertas y mapa', active: true },
-        { to: '/vehiculos', label: 'Vehiculos', icon: 'directions_car', subtitle: 'Tabla y creacion' },
+        { to: '/vehiculos', label: 'Vehiculos', icon: 'directions_car', subtitle: 'Listado de vehículos' },
         { to: '/simulacion', label: 'Simulacion', icon: 'smart_toy', subtitle: 'Generador de flota' }
       ]}
       headerRight={

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Activity, AlertTriangle, Database, Radio, Send, Timer } from 'lucide-react';
 import { clearSession, getUsername } from '../../auth/services/authService';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { AppShell } from '../../../shared/layouts/AppShell';
@@ -596,11 +597,36 @@ function MetricCard({
   return (
     <div className="rounded-2xl border border-outline-variant/20 bg-white p-3 shadow-sm">
       <div className="mb-1 flex items-center justify-between">
-        <span className="material-symbols-outlined text-base text-slate-400">{icon}</span>
+        <MetricIcon name={icon} />
         <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{label}</span>
       </div>
       <div className={`text-2xl font-black tracking-tight ${toneClasses}`}>{value}</div>
       <div className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">{hint}</div>
     </div>
   );
+}
+
+function MetricIcon({ name }: { name: string }) {
+  const cls = 'h-4 w-4 text-slate-400';
+
+  if (name === 'database') {
+    return <Database className={cls} />;
+  }
+  if (name === 'settings_input_component') {
+    return <Activity className={cls} />;
+  }
+  if (name === 'send') {
+    return <Send className={cls} />;
+  }
+  if (name === 'warning') {
+    return <AlertTriangle className={cls} />;
+  }
+  if (name === 'schedule') {
+    return <Timer className={cls} />;
+  }
+  if (name === 'hub') {
+    return <Radio className={cls} />;
+  }
+
+  return <Activity className={cls} />;
 }

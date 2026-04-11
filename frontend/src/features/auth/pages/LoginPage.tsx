@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Navigate } from 'react-router-dom';
+import { LayoutDashboard, Lock, Mail } from 'lucide-react';
 import { isAuthenticated, loginViaApi } from '../services/authService';
 
 export function LoginPage() {
@@ -7,6 +8,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('admin123');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [bannerLoaded, setBannerLoaded] = useState(false);
 
   if (isAuthenticated()) {
     return <Navigate to="/" replace />;
@@ -28,88 +30,88 @@ export function LoginPage() {
   };
 
   return (
-    <main className="relative min-h-screen w-full overflow-hidden geometric-bg">
-      <div className="mx-auto flex min-h-screen w-full max-w-[420px] items-center justify-center px-6">
-        <div className="w-full">
-          <div className="brand-shadow rounded-xl border border-outline-variant/15 bg-surface-container-lowest p-8">
-            <header className="mb-8">
-              <h2 className="font-headline text-xl font-bold text-on-surface">Portal de Operaciones</h2>
-              <p className="mt-1 text-sm text-on-tertiary-container">Accede a tu nodo seguro de telemetria.</p>
-            </header>
+    <main className="min-h-screen bg-gradient-to-br from-surface via-surface-container-low to-surface-container p-4 sm:p-6 lg:p-10">
+      <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-6xl items-center justify-center sm:min-h-[calc(100vh-3rem)] lg:min-h-[calc(100vh-5rem)]">
+        <section className="grid w-full overflow-hidden rounded-[34px] border border-outline-variant/25 bg-surface-container-lowest shadow-[0_24px_70px_rgba(15,23,42,0.18)] md:grid-cols-2">
+          <div className="flex items-center justify-center px-8 py-10 sm:px-12 lg:px-16">
+            <div className="w-full max-w-sm">
+              <header className="mb-10 text-center">
+                <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                  <LayoutDashboard className="h-6 w-6" />
+                </div>
+                <h1 className="font-headline text-4xl font-black tracking-tight text-on-surface">Bienvenido</h1>
+                <p className="mt-1 text-sm text-on-surface-variant">Inicia sesion para acceder al panel de monitoreo.</p>
+              </header>
 
-            <form className="space-y-6" onSubmit={onSubmit}>
-              <div>
-                <label
-                  className="ml-1 mb-2 block font-label text-[11px] font-bold uppercase tracking-wider text-on-surface-variant"
-                  htmlFor="operator-id"
-                >
-                  ID de Operador
+              <form className="space-y-4" onSubmit={onSubmit}>
+                <label className="block" htmlFor="operator-id">
+                  <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface-variant">Correo o username</span>
+                  <div className="relative">
+                    <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-variant/60" />
+                    <input
+                      id="operator-id"
+                      name="operator-id"
+                      type="text"
+                      autoComplete="username"
+                      className="block w-full rounded-full border border-outline-variant/40 bg-surface-container-low py-3 pl-11 pr-4 text-sm font-medium text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:bg-surface focus:outline-none"
+                      placeholder="tu@email.com"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      required
+                    />
+                  </div>
                 </label>
-                <div className="relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                    <span className="material-symbols-outlined text-sm text-on-tertiary-container">badge</span>
+
+                <label className="block" htmlFor="password">
+                  <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface-variant">Contrasena</span>
+                  <div className="relative">
+                    <Lock className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-variant/60" />
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      autoComplete="current-password"
+                      className="block w-full rounded-full border border-outline-variant/40 bg-surface-container-low py-3 pl-11 pr-4 text-sm font-medium text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:bg-surface focus:outline-none"
+                      placeholder="Ingresa tu contrasena"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      required
+                    />
                   </div>
-                  <input
-                    id="operator-id"
-                    name="operator-id"
-                    type="text"
-                    autoComplete="username"
-                    className="input-transition block w-full rounded-xl border border-transparent bg-surface-container-low py-3.5 pl-11 pr-4 text-sm font-medium text-on-surface placeholder:text-on-tertiary-container/50 focus:border-primary/40 focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary/40"
-                    placeholder="FLT-7729-00"
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                    required
-                  />
-                </div>
-              </div>
+                </label>
 
-              <div>
-                <div className="ml-1 mb-2 flex items-center">
-                  <label
-                    className="block font-label text-[11px] font-bold uppercase tracking-wider text-on-surface-variant"
-                    htmlFor="password"
-                  >
-                    Contrasena
-                  </label>
-                </div>
+                {error ? (
+                  <p className="rounded-xl border border-error/30 bg-error-container/25 px-3 py-2 text-xs font-semibold text-error">
+                    {error}
+                  </p>
+                ) : null}
 
-                <div className="relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                    <span className="material-symbols-outlined text-sm text-on-tertiary-container">lock</span>
-                  </div>
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    className="input-transition block w-full rounded-xl border border-transparent bg-surface-container-low py-3.5 pl-11 pr-4 text-sm font-medium text-on-surface placeholder:text-on-tertiary-container/50 focus:border-primary/40 focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary/40"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              {error ? (
-                <p className="rounded-lg border border-error/25 bg-error-container/20 px-3 py-2 text-xs font-semibold text-on-error-container">
-                  {error}
-                </p>
-              ) : null}
-
-              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-primary to-primary-dim py-4 font-label text-sm font-bold uppercase tracking-[0.2em] text-on-primary transition-all hover:shadow-lg hover:shadow-primary/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+                  className="mt-3 block w-full rounded-full bg-primary px-4 py-3 text-sm font-bold text-on-primary transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {loading ? 'Validando...' : 'Entrar'}
-                  <span className="material-symbols-outlined text-lg">arrow_forward</span>
+                  {loading ? 'Validando...' : 'Iniciar sesion'}
                 </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
-        </div>
+
+          <div className="relative hidden min-h-[520px] overflow-hidden md:block">
+            <div
+              className={`absolute inset-0 bg-gradient-to-br from-primary/20 via-surface-container to-secondary/20 transition-opacity duration-500 ${bannerLoaded ? 'opacity-0' : 'opacity-100'}`}
+            />
+            <img
+              alt="Panel visual de acceso"
+              className={`h-full w-full object-cover transition-all duration-700 ${bannerLoaded ? 'scale-100 blur-0 opacity-100' : 'scale-[1.03] blur-md opacity-80'}`}
+              decoding="async"
+              loading="lazy"
+              src="/assets/images/login-banner.jpg"
+              onLoad={() => setBannerLoaded(true)}
+            />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/20 via-transparent to-transparent" />
+          </div>
+        </section>
       </div>
     </main>
   );

@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Car, ChevronDown, Home, LayoutDashboard, LogOut, Map, Radar } from 'lucide-react';
 
 type NavItem = {
   to: string;
@@ -62,7 +63,7 @@ export function AppShell({
       <aside className="fixed left-0 top-0 z-50 hidden h-full w-72 border-r border-outline-variant/20 bg-surface-container-lowest/95 p-5 lg:flex lg:flex-col">
         <div className="mb-8 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-on-primary">
-            <span className="material-symbols-outlined">data_thresholding</span>
+            <LayoutDashboard className="h-5 w-5" strokeWidth={2.3} />
           </div>
           <div>
             <p className="font-headline text-xl font-extrabold tracking-tight">FleetTrips</p>
@@ -82,7 +83,7 @@ export function AppShell({
               }
               to={item.to}
             >
-              <span className="material-symbols-outlined">{item.icon}</span>
+              <NavIcon name={item.icon} />
               <div>
                 <p className="text-sm font-semibold">{item.label}</p>
                 {item.subtitle ? <p className="text-[11px] opacity-80">{item.subtitle}</p> : null}
@@ -107,7 +108,7 @@ export function AppShell({
               type="button"
             >
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-on-primary">{initial}</span>
-              <span className="material-symbols-outlined text-base">expand_more</span>
+              <ChevronDown className="h-4 w-4" />
             </button>
 
             {isUserMenuOpen ? (
@@ -121,7 +122,7 @@ export function AppShell({
                   onClick={onLogout}
                   type="button"
                 >
-                  <span className="material-symbols-outlined text-base">logout</span>
+                  <LogOut className="h-4 w-4" />
                   Cerrar sesion
                 </button>
               </div>
@@ -135,4 +136,23 @@ export function AppShell({
       </main>
     </div>
   );
+}
+
+function NavIcon({ name }: { name: string }) {
+  const iconClass = 'h-[18px] w-[18px]';
+
+  if (name === 'home') {
+    return <Home className={iconClass} />;
+  }
+  if (name === 'map') {
+    return <Map className={iconClass} />;
+  }
+  if (name === 'directions_car') {
+    return <Car className={iconClass} />;
+  }
+  if (name === 'smart_toy') {
+    return <Radar className={iconClass} />;
+  }
+
+  return <LayoutDashboard className={iconClass} />;
 }

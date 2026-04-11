@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { clearSession, getUsername } from '../../auth/services/authService';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { AppShell } from '../../../shared/layouts/AppShell';
@@ -157,11 +156,6 @@ export function VehiclesPage() {
           </div>
         </section>
 
-        <div className="mt-5">
-          <Link className="text-sm font-semibold text-primary" to="/">
-            Volver al dashboard
-          </Link>
-        </div>
       </AppShell>
     </>
   );
