@@ -219,8 +219,28 @@ Base: http://localhost:8094/api/v1/simulation
   - PostgreSQL: operaciones transaccionales y estado actual
   - ClickHouse: historico masivo y consultas OLAP
 
-## Justificacion tecnica (seniority)
+## Justificacion tecnica
 
 - Escalabilidad: separar BI (Superset) de operacion (React + APIs) evita sobrecarga en el backend principal.
 - Stack tecnologico: alineacion con patrones enterprise donde Superset se monta sobre motores columnares (Druid/ClickHouse).
 - Valor de negocio: analistas/admins pueden crear reportes sin dependencia del equipo de desarrollo.
+
+## Uso de IA en el proyecto
+
+Herramientas utilizadas:
+
+- GitHub Copilot en el IDE Visual Studio Code.
+- Gemini 3.1.
+- Cloud Sonnet 4.6.
+- Opus 4.6.
+
+Aplicaciones principales de GitHub Copilot:
+
+- Documentacion tecnica y estructuracion del README y guias operativas.
+- Analisis de arquitectura y propuestas de integracion (ClickHouse, Superset y despliegue local).
+- Mejoras de optimizacion a nivel empresarial en configuracion, performance y flujo operativo.
+- Consultas estrategicas para acelerar diagnostico, iteracion y toma de decisiones tecnicas.
+
+Aplicacion adicional de Gemini 3.1:
+
+- Creacion del logo principal usado en la interfaz del sistema.
