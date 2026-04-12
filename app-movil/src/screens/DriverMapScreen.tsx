@@ -208,22 +208,6 @@ export function TelemetryScreen() {
               <StatusPill label={effectiveSignal} tone={signalTone} />
               <Text style={styles.vehicleChip}>{currentVehicleLabel}</Text>
             </View>
-
-            <View style={styles.quickActionsRow}>
-              <Pressable onPress={() => navigation.navigate('DriverSimulator')} style={styles.quickButton}>
-                <Ionicons color={colors.primaryDark} name="pulse-outline" size={17} />
-                <Text style={styles.quickButtonText}>Simulador</Text>
-              </Pressable>
-
-              <Pressable onPress={() => navigation.navigate('DriverAlerts')} style={styles.quickButton}>
-                <Ionicons color={colors.primaryDark} name="notifications-outline" size={17} />
-                <Text style={styles.quickButtonText}>Alertas</Text>
-              </Pressable>
-              <Pressable onPress={() => navigation.navigate('DriverProfile')} style={styles.quickButton}>
-                <Ionicons color={colors.primaryDark} name="person-circle-outline" size={17} />
-                <Text style={styles.quickButtonText}>Perfil</Text>
-              </Pressable>
-            </View>
           </View>
         </GlassCard>
       </View>
@@ -237,12 +221,31 @@ export function TelemetryScreen() {
             <Text style={[styles.tabText, styles.tabTextActive]}>Navegacion</Text>
           </Pressable>
 
-          <Pressable disabled={sendingPanic} onPress={triggerPanic} style={[styles.panicButton, sendingPanic && styles.disabledButton]}>
-            <Ionicons color="#ffffff" name="alert" size={20} />
-            <Text style={styles.panicText}>{sendingPanic ? 'Enviando' : 'Panico'}</Text>
+          <Pressable onPress={() => navigation.navigate('DriverSimulator')} style={styles.tabButton}>
+            <Ionicons color={colors.textMuted} name="pulse-outline" size={20} />
+            <Text style={styles.tabText}>Simulador</Text>
+          </Pressable>
+
+          <Pressable onPress={() => navigation.navigate('DriverAlerts')} style={styles.tabButton}>
+            <Ionicons color={colors.textMuted} name="notifications-outline" size={20} />
+            <Text style={styles.tabText}>Alertas</Text>
+          </Pressable>
+
+          <Pressable onPress={() => navigation.navigate('DriverProfile')} style={styles.tabButton}>
+            <Ionicons color={colors.textMuted} name="person-circle-outline" size={20} />
+            <Text style={styles.tabText}>Perfil</Text>
           </Pressable>
         </View>
       </View>
+
+      <Pressable
+        disabled={sendingPanic}
+        onPress={triggerPanic}
+        style={[styles.panicFab, { bottom: insets.bottom + 84 }, sendingPanic && styles.disabledButton]}
+      >
+        <Ionicons color="#ffffff" name="alert" size={20} />
+        <Text style={styles.panicText}>{sendingPanic ? 'Enviando' : 'Panico'}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -360,40 +363,19 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999
   },
-  quickActionsRow: {
-    flexDirection: 'row',
-    gap: 10
-  },
-  quickButton: {
-    flex: 1,
-    minHeight: 40,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: '#f8fbff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6
-  },
-  quickButtonText: {
-    color: colors.primaryDark,
-    fontWeight: '800',
-    fontSize: 12
-  },
   bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: 'rgba(255,255,255,0.95)',
-    padding: 8
+    padding: 6
   },
   tabButton: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 46,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center'
@@ -409,13 +391,22 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: colors.primaryDark
   },
-  panicButton: {
+  panicFab: {
+    position: 'absolute',
+    right: 18,
     backgroundColor: colors.danger,
     borderRadius: 999,
-    minHeight: 48,
-    flex: 1,
+    minHeight: 52,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    shadowColor: colors.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 7
   },
   panicText: {
     color: '#ffffff',
