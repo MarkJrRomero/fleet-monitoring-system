@@ -1,68 +1,16 @@
-# Fleet Monitoring System
+# SMTF - Sistema de Monitoreo y Telemetría de Flotas
 
-Base del proyecto para monitoreo de flotas. Actualmente incluye el frontend inicial en React + TypeScript y un flujo de despliegue estandarizado con Makefile.
+Sistema de monitoreo de flotas con frontend React, servicios en Go y capa analitica ClickHouse + Superset.
 
-## Estado actual
-
-- Frontend base en React + TypeScript
-- Keycloak en Docker para flujo de autenticación
-- Redis compartido para cache de microservicios
-- PostgreSQL compartido para persistencia de microservicios
-- ClickHouse como capa de analitica historica
-- Apache Superset para dashboards y autoservicio BI
-- Microservicio de ingesta GPS (Go) con anti-duplicados y persistencia historica
-- Microservicio WebSocket (Go) para streaming de posiciones en tiempo real
-- Microservicio de vehiculos (Go) para catalogo y gestion de flota
-- Modulo de simulacion en frontend para generar flota y enviar movimientos a ingesta
-- Despliegue local con Docker Compose
-- Operación unificada con Makefile (`make up`, `make down`, `make logs`, etc.)
-
-## Estructura del repositorio
-
-```text
-deployments/   # Orquestación y despliegue
-docs/          # Documentacion
-frontend/      # Aplicacion web (React + TypeScript)
-scripts/       # Scripts de soporte
-services/      # Microservicios/backends (proximamente)
-Makefile       # Comandos operativos
-```
-
-## Requisitos
-
-- Docker
-- Docker Compose (`docker compose` o `docker-compose`)
-- npm (Node.js)
-- make
-
-## Quickstart (recomendado)
+## Despliegue rapido (Make + Docker)
 
 Desde la raiz del repositorio:
 
 ```bash
 make env-init
-make help
 make doctor
 make up
 ```
-
-La app quedara disponible en `http://localhost:5173`.
-Keycloak quedara disponible en `http://localhost:8080`.
-Redis quedara disponible en `localhost:6379`.
-PostgreSQL quedara disponible en `localhost:5432`.
-ClickHouse quedara disponible en `http://localhost:8123` (HTTP) y `localhost:9000` (native).
-Superset quedara disponible en `http://localhost:8087`.
-Servicio de ingesta quedara disponible en `http://localhost:8091`.
-Servicio websocket quedara disponible en `ws://localhost:8093/ws/positions`.
-Canal websocket de alertas quedara disponible en `ws://localhost:8093/ws/alerts`.
-Servicio de vehiculos quedara disponible en `http://localhost:8094`.
-Adminer (PostgreSQL UI) quedara disponible en `http://localhost:8088`.
-Redis Commander (Redis UI) quedara disponible en `http://localhost:8089`.
-
-Admin Console de Keycloak:
-- URL: `http://localhost:8080/admin`
-- Usuario: `admin` (o valor de `KEYCLOAK_ADMIN_USERNAME`)
-- Password: `admin` (o valor de `KEYCLOAK_ADMIN_PASSWORD`)
 
 Para apagar el stack:
 
@@ -70,211 +18,209 @@ Para apagar el stack:
 make down
 ```
 
+## URLs disponibles y credenciales de prueba
+
+Luego de `make up`, estos endpoints quedan activos:
+
+### Herramientas visuales
+
+1. Frontend SMTF - Sistema de Monitoreo y Telemetría de Flotas
+  - URL: http://localhost:5173
+  - Usuario: admin_test
+  - Password: admin123
+  - Nota: login funcional contra Keycloak realm importado.
+
+2. Keycloak Admin Console
+  - URL: http://localhost:8080/admin
+  - Usuario: admin
+  - Password: admin
+  - Nota: gestion de realm, clientes y usuarios.
+
+3. Keycloak Realm Account
+  - URL: http://localhost:8080/realms/fleet-monitoring/account
+  - Usuario: admin_test
+  - Password: admin123
+  - Nota: portal de cuenta del usuario del realm.
+
+4. Superset
+  - URL: http://localhost:8087
+  - Usuario: admin
+  - Password: admin
+  - Nota: dashboards y SQL Lab sobre ClickHouse.
+
+5. Adminer (PostgreSQL UI)
+  - URL: http://localhost:8088
+  - Usuario: fleet_user
+  - Password: fleet_password
+  - Nota: servidor postgres, base fleet_monitoring.
+
+6. Redis Commander
+  - URL: http://localhost:8089
+  - Usuario: admin
+  - Password: admin
+  - Nota: gestion visual de claves y canales Redis.
+
+7. ClickHouse SQL Playground
+  - URL: http://localhost:8123/play?user=default&password=clickhouse&database=default
+  - Usuario: default
+  - Password: clickhouse
+  - Nota: consola SQL web para analitica.
+
+### Servicios no visuales (APIs y streams)
+
+1. ClickHouse HTTP API
+  - URL: http://localhost:8123
+  - Auth: default / clickhouse
+
+2. Ingestion Service API
+  - URL: http://localhost:8091
+  - Auth: sin autenticacion en local
+
+3. Vehicle Service API
+  - URL: http://localhost:8094
+  - Auth: sin autenticacion en local
+
+4. WebSocket posiciones
+  - URL: ws://localhost:8093/ws/positions
+  - Auth: sin autenticacion en local
+
+5. WebSocket alertas
+  - URL: ws://localhost:8093/ws/alerts
+  - Auth: sin autenticacion en local
+
 ## Comandos principales
 
 | Comando | Descripcion |
 |---|---|
-| `make up` | Sube todo el stack (frontend + keycloak + redis + postgres + ingestion-service) |
-| `make down` | Baja todo el stack |
-| `make ps` | Muestra estado de servicios |
-| `make logs SERVICE=all` | Sigue logs de todos los servicios |
-| `make logs SERVICE=keycloak` | Sigue logs de Keycloak |
-| `make restart SERVICE=keycloak` | Reinicia Keycloak |
-| `make build` | Rebuild de imagenes |
-| `make pull` | Pull de imagenes remotas |
-| `make env-init` | Crea `.env` local desde `.env.example` |
+| make up | Sube todo el stack local |
+| make down | Baja todo el stack |
+| make ps | Muestra estado de servicios |
+| make logs SERVICE=all | Sigue logs de todos los servicios |
+| make logs SERVICE=superset | Sigue logs de Superset |
+| make restart SERVICE=clickhouse | Reinicia un servicio puntual |
+| make build | Rebuild de imagenes |
+| make pull | Pull de imagenes remotas |
+| make env-init | Crea .env local desde .env.example |
 
-## Apache Superset
+## Guia operativa de Superset
 
-Superset se integra como capa analitica separada del dashboard operacional React.
-
-- URL: `http://localhost:8087`
-- Usuario admin: valor de `SUPERSET_ADMIN_USERNAME` (default: `admin`)
-- Password admin: valor de `SUPERSET_ADMIN_PASSWORD` (default: `admin`)
-- Base de metadatos: PostgreSQL dedicado (`superset-db`)
-- Conexion analitica registrada automaticamente hacia ClickHouse:
+- URL: http://localhost:8087
+- Credenciales por defecto: admin / admin
+- Conexion analitica cargada automaticamente:
 
 ```text
 clickhouse://default:clickhouse@clickhouse:8123/default
 ```
 
-Implementacion incluida:
+Requisitos importantes para mapas/heatmaps:
 
-- Servicio `superset` en Docker Compose.
-- Servicio `superset-db` para metadatos internos.
-- Imagen custom con drivers `clickhouse-connect`, `clickhouse-sqlalchemy` y `psycopg2-binary`.
-- Script de bootstrap `.docker/superset/superset_init.sh` que:
-	- ejecuta migraciones,
-	- crea el usuario administrador,
-	- inicializa roles/permisos,
-	- registra la conexion a ClickHouse.
+- Definir MAPBOX_API_KEY en .env para ver mapa base en charts Deck.gl.
+- Si aparece MEMORY_LIMIT_EXCEEDED en ClickHouse, aplicar filtros de tiempo y reducir cardinalidad (ver guia avanzada).
 
-Nota para mapas geoespaciales:
+Guia de dashboards y SQL de sustentacion:
 
-- Los charts `Deck.gl` requieren configurar `MAPBOX_API_KEY` en `.env` para renderizar el mapa base.
-- Si `MAPBOX_API_KEY` esta vacio, los puntos o celdas pueden verse sobre un fondo blanco aunque la consulta funcione correctamente.
+- docs/superset-dashboard-guide.md
 
-Para construir dashboards de sustentacion, consulta [docs/superset-dashboard-guide.md](docs/superset-dashboard-guide.md).
+## Estado actual del sistema
 
-## Gestores visuales en Docker
+- Frontend base en React + TypeScript
+- Keycloak en Docker para autenticacion y roles
+- Redis compartido para cache/eventos
+- PostgreSQL compartido para persistencia operacional
+- ClickHouse para historico analitico
+- Apache Superset para BI y autoservicio
+- Ingestion Service (Go) con anti-duplicados
+- WebSocket Service (Go) para realtime
+- Vehicle Service (Go) para catalogo y simulacion backend
 
-### PostgreSQL (Adminer)
+## Estructura del repositorio
 
-- URL: `http://localhost:8088`
-- Sistema: `PostgreSQL`
-- Servidor: `postgres`
-- Usuario: valor de `POSTGRES_USER` (default: `fleet_user`)
-- Password: valor de `POSTGRES_PASSWORD` (default: `fleet_password`)
-- Base de datos: valor de `POSTGRES_DB` (default: `fleet_monitoring`)
+```text
+deployments/   # Orquestacion y despliegue
+docs/          # Documentacion tecnica y guias
+frontend/      # App web React + TypeScript
+scripts/       # Scripts de soporte
+services/      # Microservicios backend (Go)
+Makefile       # Operacion estandar
+```
 
-### Redis (Redis Commander)
+## Requisitos
 
-- URL: `http://localhost:8089`
-- Usuario: valor de `REDIS_UI_USER` (default: `admin`)
-- Password: valor de `REDIS_UI_PASSWORD` (default: `admin`)
+- Docker
+- Docker Compose (docker compose o docker-compose)
+- npm (Node.js)
+- make
 
-## Estrategia de variables de entorno (senior)
+## Estrategia de variables de entorno
 
-Se usa un contrato unico en la raiz del repo para alinear frontend, Keycloak y futuros microservicios:
+- Plantilla versionada: .env.example
+- Archivo local: .env (no versionado)
+- Docker Compose y Makefile consumen .env como fuente unica de verdad
 
-- Plantilla versionada: `.env.example`
-- Archivo local no versionado: `.env`
-- Docker Compose y Makefile consumen `.env` como fuente de verdad
+Variables clave:
 
-Esto evita drift entre servicios y simplifica CI/CD y despliegues por ambiente.
+- Frontend: FRONTEND_PORT, FRONTEND_API_BASE_URL, FRONTEND_AUTH_URL, FRONTEND_AUTH_REALM, FRONTEND_AUTH_CLIENT_ID
+- Keycloak: KEYCLOAK_PORT, KEYCLOAK_ADMIN_USERNAME, KEYCLOAK_ADMIN_PASSWORD, KEYCLOAK_IMPORT_FILE
+- ClickHouse: CLICKHOUSE_HTTP_PORT, CLICKHOUSE_NATIVE_PORT, CLICKHOUSE_USERNAME, CLICKHOUSE_PASSWORD, CLICKHOUSE_MEM_LIMIT
+- Superset: SUPERSET_PORT, SUPERSET_ADMIN_USERNAME, SUPERSET_ADMIN_PASSWORD, SUPERSET_DB_NAME, MAPBOX_API_KEY
+- Backends: INGESTION_SERVICE_PORT, VEHICLE_SERVICE_PORT, WEBSOCKET_SERVICE_PORT, REDIS_URL, POSTGRES_*
 
-Variables clave actuales:
+## APIs principales
 
-- Frontend:
-	- `FRONTEND_PORT`
-	- `FRONTEND_API_BASE_URL`
-	- `FRONTEND_AUTH_URL`
-	- `FRONTEND_AUTH_REALM`
-	- `FRONTEND_AUTH_CLIENT_ID`
-- Keycloak:
-	- `KEYCLOAK_PORT`
-	- `KEYCLOAK_ADMIN_USERNAME`
-	- `KEYCLOAK_ADMIN_PASSWORD`
-	- `KEYCLOAK_IMPORT_FILE`
-- Microservicios (placeholders para siguientes iteraciones):
-	- `API_PORT`, `API_BASE_URL`
-	- `INGESTION_SERVICE_PORT`, `INGESTION_RECENT_TTL_SECONDS`, `INGESTION_DEDUPE_WINDOW_SECONDS`
-	- `REDIS_POSITIONS_CHANNEL`, `REDIS_ALERTS_CHANNEL`
-	- `NOTIFICATION_SERVICE_PORT`
-	- `REDIS_URL`, `REDIS_PORT`
-	- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE`
-
-## API de Ingesta GPS
+### Ingestion API
 
 Endpoint principal:
 
-- `POST /api/v1/ingestion/gps`
+- POST /api/v1/ingestion/gps
 
-Payload esperado:
+Payload ejemplo:
 
 ```json
 {
-	"vehicle_id": "TRK-1001",
-	"lat": -33.4489,
-	"lng": -70.6693,
-	"timestamp": "2026-04-11T18:25:43Z"
+  "vehicle_id": "TRK-1001",
+  "lat": -33.4489,
+  "lng": -70.6693,
+  "timestamp": "2026-04-11T18:25:43Z"
 }
 ```
 
 Comportamiento:
 
-- Anti-duplicados por ventana temporal configurable (misma coordenada en misma ventana => se ignora)
-- Cache de coordenada reciente por vehiculo en Redis con TTL corto
-- Persistencia historica en PostgreSQL (`gps_locations`)
-- Push asincrono en lote hacia ClickHouse (`telemetry_history`) para analitica de largo plazo
-- Publicacion del evento en Redis channel (`gps:stream`) para consumo del websocket-service
-- Si un vehiculo envia la misma coordenada por mas de 1 minuto, se publica alerta `Vehiculo Detenido` en `alerts:stream`
+- Anti-duplicados por ventana temporal
+- Cache reciente en Redis
+- Persistencia operacional en PostgreSQL
+- Replica analitica por lotes en ClickHouse (telemetry_history)
+- Publicacion a canales Redis para consumo WebSocket
 
-Ejemplo rapido:
+### Vehicle API
 
-```bash
-curl -X POST http://localhost:8091/api/v1/ingestion/gps \
-	-H "Content-Type: application/json" \
-	-d '{
-		"vehicle_id": "TRK-1001",
-		"lat": -33.4489,
-		"lng": -70.6693,
-		"timestamp": "2026-04-11T18:25:43Z"
-	}'
-```
+Base: http://localhost:8094/api/v1/vehicles
 
-## Simulador de Flota (Frontend)
+- GET /api/v1/vehicles
+- POST /api/v1/vehicles/bulk
+- POST /api/v1/vehicles
+- GET /api/v1/vehicles/{vehicle_id}
+- PATCH /api/v1/vehicles/{vehicle_id}
 
-Ruta protegida:
+Control simulacion backend:
 
-- `/simulacion`
+Base: http://localhost:8094/api/v1/simulation
 
-Funciones disponibles:
-
-- Crear 100 vehiculos por cada click (acumulativo)
-- Elegir cantidad de vehiculos a simular
-- Iniciar/Detener simulacion de movimiento (persistente en backend)
-- Activar/Desactivar conexion WebSocket
-- Ver eventos en vivo enviados por `ws://localhost:8093/ws/positions`
-- La simulacion sigue ejecutandose aunque cierres o cambies de pantalla
-
-## API de Vehiculos
-
-Endpoint base: `http://localhost:8094/api/v1/vehicles`
-
-- `GET /api/v1/vehicles` -> lista vehiculos disponibles
-- `POST /api/v1/vehicles/bulk` -> crea vehiculos de prueba en lote (default: 100)
-- `POST /api/v1/vehicles` -> crea vehiculo individual
-- `GET /api/v1/vehicles/{vehicle_id}` -> detalle por id
-- `PATCH /api/v1/vehicles/{vehicle_id}` -> actualiza estado del vehiculo
-
-### Control de simulacion persistente
-
-Endpoint base: `http://localhost:8094/api/v1/simulation`
-
-- `GET /api/v1/simulation/status` -> estado actual del simulador
-- `POST /api/v1/simulation/start` -> inicia simulacion en backend
-- `POST /api/v1/simulation/stop` -> detiene simulacion en backend
-
-## Flujo frontend con Make
-
-```bash
-make frontend-install
-make frontend-dev
-make frontend-build
-```
+- GET /api/v1/simulation/status
+- POST /api/v1/simulation/start
+- POST /api/v1/simulation/stop
 
 ## Notas de arquitectura
 
-- El comando operativo principal es `make up`.
-- Keycloak corre con `start-dev --import-realm` y carga el realm desde `.docker/keycloak/realm-export.json`.
-- Las credenciales admin de Keycloak y puertos se controlan en `.env`.
-- Redis y PostgreSQL se despliegan como infraestructura compartida para todos los microservicios.
-- ClickHouse complementa a PostgreSQL: no reemplaza persistencia transaccional, separa consultas analiticas del flujo operacional.
-- Superset agrega una capa BI desacoplada para exploracion analitica, dashboards y reporting sin tocar el frontend operacional.
-- El servicio de ingesta crea automaticamente su tabla historica en PostgreSQL al iniciar.
-- El servicio de ingesta envia copia asincrona de coordenadas a ClickHouse por lotes usando variables `CLICKHOUSE_*`.
-- El websocket-service se suscribe al canal Redis `gps:stream` y retransmite eventos a clientes WebSocket.
-- A medida que se agreguen servicios en `services/` y `deployments/docker-compose.yml`, se levantaran automaticamente con el mismo flujo.
-- Objetivo: mantener una interfaz unica de operacion para todo el sistema.
+- make up es el entrypoint operacional recomendado.
+- Keycloak se levanta con start-dev --import-realm y usa .docker/keycloak/realm-export.json.
+- Superset corre desacoplado del dashboard React para carga analitica.
+- ClickHouse y PostgreSQL cumplen roles distintos:
+  - PostgreSQL: operaciones transaccionales y estado actual
+  - ClickHouse: historico masivo y consultas OLAP
 
-## Decisiones tecnicas: ClickHouse + PostgreSQL
+## Justificacion tecnica (seniority)
 
-Aunque el sistema puede operar solo con PostgreSQL, se integra ClickHouse para habilitar analitica de alto volumen en tiempo real:
-
-- PostgreSQL: estado actual de vehiculos y operaciones transaccionales.
-- ClickHouse: historico masivo y consultas OLAP de alto rendimiento.
-- Superset: consumo analitico, dashboards ejecutivos y autoservicio sobre ClickHouse.
-
-Esto evita que reportes historicos pesados afecten la latencia de ingesta GPS en tiempo real.
-
-## Desafios y soluciones
-
-- ClickHouse ofrece alto rendimiento analitico con menor complejidad operativa en entorno local.
-- Si necesitas un entorno aun mas liviano, puedes mantener `CLICKHOUSE_ENABLED=false` y seguir con PostgreSQL como persistencia principal.
-
-## Justificacion tecnica de Superset
-
-- Escalabilidad: separar la visualizacion analitica en Superset del dashboard operacional React evita sobrecarga sobre el backend principal y protege la experiencia en tiempo real.
-- Stack tecnologico: la arquitectura queda alineada con patrones enterprise donde Superset se usa como capa BI sobre motores analiticos columnares como Druid y ClickHouse.
-- Valor de negocio: administradores y analistas pueden crear reportes personalizados sin depender de nuevos desarrollos en frontend o backend.
+- Escalabilidad: separar BI (Superset) de operacion (React + APIs) evita sobrecarga en el backend principal.
+- Stack tecnologico: alineacion con patrones enterprise donde Superset se monta sobre motores columnares (Druid/ClickHouse).
+- Valor de negocio: analistas/admins pueden crear reportes sin dependencia del equipo de desarrollo.
