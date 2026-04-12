@@ -32,6 +32,7 @@ endef
 .PHONY: help doctor \
 	frontend-install frontend-dev frontend-build frontend-preview \
 	compose-config compose-build compose-up compose-down compose-delete compose-stop compose-restart compose-ps compose-logs compose-pull \
+	mobile-install mobile-start \
 	deploy undeploy up down delete stop restart ps logs build pull env-init
 
 help: ## Lista los comandos disponibles
@@ -77,6 +78,16 @@ frontend-build: ## Compila frontend para produccion
 frontend-preview: ## Levanta preview de build de frontend
 	$(call REQUIRE_CMD,npm)
 	@cd "$(FRONTEND_DIR)" && npm run preview
+
+MOBILE_DIR := $(ROOT_DIR)/app-movil
+
+mobile-install: ## Instala dependencias de la app movil (app-movil/)
+	$(call REQUIRE_CMD,npm)
+	@cd "$(MOBILE_DIR)" && npm install
+
+mobile-start: ## Inicia el servidor de desarrollo Expo de la app movil
+	$(call REQUIRE_CMD,npm)
+	@cd "$(MOBILE_DIR)" && npm run start
 
 compose-config: ## Valida y muestra configuracion final de Docker Compose
 	$(call REQUIRE_CMD,docker)

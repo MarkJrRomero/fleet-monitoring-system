@@ -115,14 +115,19 @@ function FocusMapOnVehicle({ target }: { target: [number, number] | null }) {
     const currentZoom = map.getZoom();
     const currentCenter = map.getCenter();
     const distance = map.distance(currentCenter, target);
-    const focusZoom = Math.min(Math.max(currentZoom, 16), 17);
+    const focusZoom = 18;
 
-    if (currentZoom >= 16 && distance < 180) {
-      map.panTo(target, { animate: true, duration: 0.55 });
+    if (currentZoom < 17.8) {
+      map.flyTo(target, focusZoom, { duration: 1.3, easeLinearity: 0.14 });
       return;
     }
 
-    map.flyTo(target, focusZoom, { duration: 0.95, easeLinearity: 0.18 });
+    if (distance > 220) {
+      map.flyTo(target, focusZoom, { duration: 1.15, easeLinearity: 0.16 });
+      return;
+    }
+
+    map.panTo(target, { animate: true, duration: 1.05, easeLinearity: 0.1 });
   }, [map, target]);
 
   return null;
@@ -138,8 +143,10 @@ function AnimatedVehicleMarker({
   onMarkerClick: () => void;
 }) {
   const [displayPosition, setDisplayPosition] = useState<[number, number]>([vehicle.lat, vehicle.lng]);
+  const [radarPhase, setRadarPhase] = useState(0);
   const currentPositionRef = useRef({ lat: vehicle.lat, lng: vehicle.lng });
   const tweenRef = useRef<gsap.core.Tween | null>(null);
+  const markerColor = getVehicleMapColor(vehicle.status);
 
   useEffect(() => {
     const from = currentPositionRef.current;
@@ -166,15 +173,52 @@ function AnimatedVehicleMarker({
     };
   }, [vehicle.lat, vehicle.lng]);
 
+  useEffect(() => {
+    if (!selected) {
+      setRadarPhase(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      const elapsed = (Date.now() - startedAt) % 1600;
+      setRadarPhase(elapsed / 1600);
+    }, 50);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [selected]);
+
+  const radarRadius = VEHICLE_PIN_RADIUS + 4 + radarPhase * 11;
+  const radarOpacity = 0.66 * (1 - radarPhase);
+
   return (
-    <CircleMarker
-      center={displayPosition}
-      fillColor={getVehicleMapColor(vehicle.status)}
-      fillOpacity={vehicle.isReporting ? 0.88 : 0.64}
-      pathOptions={{ color: selected ? '#0ea5e9' : '#ffffff', weight: selected ? 2.3 : 1.8 }}
-      radius={VEHICLE_PIN_RADIUS}
-      eventHandlers={{ click: onMarkerClick }}
-    />
+    <>
+      {selected ? (
+        <CircleMarker
+          center={displayPosition}
+          fillColor={markerColor}
+          fillOpacity={Math.max(0.06, radarOpacity * 0.22)}
+          pathOptions={{ color: markerColor, weight: 2.2, opacity: Math.max(0.2, radarOpacity) }}
+          radius={radarRadius}
+          interactive={false}
+        />
+      ) : null}
+
+      <CircleMarker
+        center={displayPosition}
+        fillColor={markerColor}
+        fillOpacity={vehicle.isReporting ? 0.95 : 0.72}
+        pathOptions={{
+          color: markerColor,
+          weight: selected ? 3 : 2.1,
+          opacity: 1
+        }}
+        radius={VEHICLE_PIN_RADIUS}
+        eventHandlers={{ click: onMarkerClick }}
+      />
+    </>
   );
 }
 
@@ -648,7 +692,20 @@ export function DashboardPage() {
     return summary;
   }, [allVehicles]);
 
-  const markers = useMemo(() => allVehicles, [allVehicles]);
+  const markers = useMemo(() => {
+    if (!selectedVehicleId) {
+      return allVehicles;
+    }
+
+    const selected = allVehicles.find((vehicle) => vehicle.vehicle_id === selectedVehicleId);
+    if (!selected) {
+      return allVehicles;
+    }
+
+    const rest = allVehicles.filter((vehicle) => vehicle.vehicle_id !== selectedVehicleId);
+    return [...rest, selected];
+  }, [allVehicles, selectedVehicleId]);
+
   const mapCenter = useMemo<[number, number]>(() => [4.7110, -74.0721], []);
 
   const onAlertsScroll = (event: React.UIEvent<HTMLDivElement>) => {
@@ -683,6 +740,34 @@ export function DashboardPage() {
     () => (selectedVehicleId ? allVehicles.find((v) => v.vehicle_id === selectedVehicleId) ?? null : null),
     [selectedVehicleId, allVehicles]
   );
+
+  useEffect(() => {
+    if (!selectedVehicleId) {
+      return;
+    }
+
+    const selectedVehicle = allVehicles.find((vehicle) => vehicle.vehicle_id === selectedVehicleId);
+    if (!selectedVehicle) {
+      return;
+    }
+
+    const nextPosition: [number, number] = [selectedVehicle.lat, selectedVehicle.lng];
+
+    setFocusedPosition((current) => {
+      if (!current) {
+        return nextPosition;
+      }
+
+      const movedLat = Math.abs(current[0] - nextPosition[0]) > 0.000001;
+      const movedLng = Math.abs(current[1] - nextPosition[1]) > 0.000001;
+
+      if (!movedLat && !movedLng) {
+        return current;
+      }
+
+      return nextPosition;
+    });
+  }, [allVehicles, selectedVehicleId]);
 
   const onMarkerClick = (vehicle: DashboardVehicle) => {
     setSelectedVehicleId(vehicle.vehicle_id);

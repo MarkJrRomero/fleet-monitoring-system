@@ -48,17 +48,25 @@ export async function fetchVehicles(accessToken?: string): Promise<Vehicle[]> {
 }
 
 export async function sendTelemetry(payload: IngestionPayload, accessToken?: string): Promise<void> {
-  const response = await fetch(INGESTION_GPS_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
-    },
-    body: JSON.stringify(payload)
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
-  if (!response.ok) {
-    throw await parseServiceError(response, 'No se pudo enviar telemetria');
+  try {
+    const response = await fetch(INGESTION_GPS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw await parseServiceError(response, 'No se pudo enviar telemetria');
+    }
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

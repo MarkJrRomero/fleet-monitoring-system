@@ -155,13 +155,24 @@ func (h *Handler) IngestGPS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	explicitPanicPressed := req.PanicButton != nil && *req.PanicButton
+	panicActive, err := h.resolvePanicState(ctx, req.VehicleID, req.PanicButton)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "error resolviendo estado de panico")
+		return
+	}
+
+	if panicActive {
+		req.Status = "panic"
+	}
+
 	isDuplicate, err := h.isDuplicate(ctx, req, recordedAt)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "error en anti-duplicados")
 		return
 	}
 
-	if isDuplicate {
+	if isDuplicate && !explicitPanicPressed {
 		writeJSON(w, http.StatusAccepted, ingestResponse{
 			Status:    "duplicado_ignorado",
 			VehicleID: req.VehicleID,
@@ -182,14 +193,14 @@ func (h *Handler) IngestGPS(w http.ResponseWriter, r *http.Request) {
 		alerts = append(alerts, panicAlert)
 	}
 
-	if err := h.cacheRecentCoordinate(ctx, req, recordedAt, enrichment); err != nil {
+	if err := h.cacheRecentCoordinate(ctx, req, recordedAt, enrichment, panicActive); err != nil {
 		writeError(w, http.StatusInternalServerError, "error guardando cache reciente")
 		return
 	}
 
 	h.persistWithResilience(ctx, req, recordedAt, enrichment)
 
-	if err := h.publishPositionEvent(ctx, req, recordedAt, enrichment, alerts); err != nil {
+	if err := h.publishPositionEvent(ctx, req, recordedAt, enrichment, alerts, panicActive); err != nil {
 		writeError(w, http.StatusInternalServerError, "error publicando evento de posicion")
 		return
 	}
@@ -340,6 +351,7 @@ func (h *Handler) publishPositionEvent(
 	recordedAt time.Time,
 	enrichment positionEnrichment,
 	alerts []map[string]interface{},
+	panicActive bool,
 ) error {
 	channel := strings.TrimSpace(h.config.PositionsChannel)
 	if channel == "" {
@@ -357,7 +369,7 @@ func (h *Handler) publishPositionEvent(
 		"lng":          req.Lng,
 		"speed_kmh":    enrichment.SpeedKmh,
 		"status":       strings.TrimSpace(req.Status),
-		"panic_button": req.PanicButton != nil && *req.PanicButton,
+		"panic_button": panicActive,
 		"location":     enrichment.Location,
 		"alert":        primaryAlert,
 		"recorded_at":  recordedAt.UTC().Format(time.RFC3339),
@@ -388,7 +400,7 @@ func (h *Handler) isDuplicate(ctx context.Context, req gpsIngestRequest, recorde
 	return !created, nil
 }
 
-func (h *Handler) cacheRecentCoordinate(ctx context.Context, req gpsIngestRequest, recordedAt time.Time, enrichment positionEnrichment) error {
+func (h *Handler) cacheRecentCoordinate(ctx context.Context, req gpsIngestRequest, recordedAt time.Time, enrichment positionEnrichment, panicActive bool) error {
 	recentKey := fmt.Sprintf("gps:recent:%s", req.VehicleID)
 	ttl := time.Duration(h.config.RecentTTLSeconds) * time.Second
 	if ttl <= 0 {
@@ -400,7 +412,7 @@ func (h *Handler) cacheRecentCoordinate(ctx context.Context, req gpsIngestReques
 		"lat":          req.Lat,
 		"lng":          req.Lng,
 		"speed_kmh":    enrichment.SpeedKmh,
-		"panic_button": req.PanicButton != nil && *req.PanicButton,
+		"panic_button": panicActive,
 		"location":     enrichment.Location,
 		"recorded_at":  recordedAt.UTC().Format(time.RFC3339),
 	}
@@ -680,6 +692,31 @@ func (h *Handler) detectPanicButtonAlert(ctx context.Context, req gpsIngestReque
 		"detected_at": recordedAt.UTC().Format(time.RFC3339),
 		"message":     "El conductor activo el boton de panico",
 	}
+}
+
+func (h *Handler) resolvePanicState(ctx context.Context, vehicleID string, panicCommand *bool) (bool, error) {
+	stateKey := fmt.Sprintf("panic:active:%s", vehicleID)
+
+	if panicCommand != nil {
+		if *panicCommand {
+			if err := h.redis.Set(ctx, stateKey, "1", 24*time.Hour).Err(); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+
+		if err := h.redis.Del(ctx, stateKey).Err(); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	exists, err := h.redis.Exists(ctx, stateKey).Result()
+	if err != nil {
+		return false, err
+	}
+
+	return exists > 0, nil
 }
 
 func (h *Handler) publishAlert(ctx context.Context, payload map[string]interface{}) {

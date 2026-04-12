@@ -8,9 +8,7 @@ import MapView, { Marker, Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassCard } from '../components/GlassCard';
 import { StatusPill } from '../components/StatusPill';
-import { DEFAULT_VEHICLE_ID } from '../config/runtime';
 import { useAuth } from '../context/AuthContext';
-import { formatServiceError } from '../services/httpClient';
 import { connectPositions, fetchVehicles, sendTelemetry } from '../services/telemetryService';
 import { colors } from '../theme/colors';
 import { PositionEvent, Vehicle } from '../types/domain';
@@ -48,9 +46,28 @@ export function TelemetryScreen() {
   const [loadingMapData, setLoadingMapData] = useState(true);
   const [positionsSocketConnected, setPositionsSocketConnected] = useState(false);
   const [sendingPanic, setSendingPanic] = useState(false);
-  const [panicMessage, setPanicMessage] = useState<string | null>(null);
+  const [panicActive, setPanicActive] = useState(false);
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
 
-  const trackedVehicleId = DEFAULT_VEHICLE_ID;
+  const sessionVehicleId = (session?.username || '').trim();
+  const hasSessionVehicle = useMemo(
+    () => vehicles.some((vehicle) => vehicle.vehicle_id === sessionVehicleId),
+    [sessionVehicleId, vehicles]
+  );
+
+  useEffect(() => {
+    if (hasSessionVehicle) {
+      setSelectedVehicleId(sessionVehicleId);
+      return;
+    }
+
+    if (!selectedVehicleId && vehicles.length > 0) {
+      setSelectedVehicleId(vehicles[0].vehicle_id);
+    }
+  }, [hasSessionVehicle, selectedVehicleId, sessionVehicleId, vehicles]);
+
+  const trackedVehicleId = selectedVehicleId || sessionVehicleId;
+
   const trackedVehicle = useMemo(
     () => vehicles.find((vehicle) => vehicle.vehicle_id === trackedVehicleId) || null,
     [trackedVehicleId, vehicles]
@@ -89,9 +106,7 @@ export function TelemetryScreen() {
 
         setVehicles(vehiclesData);
       } catch (error) {
-        if (active) {
-          setPanicMessage(formatServiceError(error, 'No se pudo cargar la posicion del vehiculo.'));
-        }
+        // Sin banner de estado: el usuario solo vera estado de conectividad en el pill.
       } finally {
         if (active) {
           setLoadingMapData(false);
@@ -112,7 +127,19 @@ export function TelemetryScreen() {
       onClose: () => setPositionsSocketConnected(false),
       onError: () => setPositionsSocketConnected(false),
       onMessage: (event) => {
-        if (!event.vehicle_id || event.vehicle_id !== trackedVehicleId) {
+        if (!event.vehicle_id) {
+          return;
+        }
+
+        const canAutoBindFromStream = !hasSessionVehicle && vehicles.length === 0;
+
+        if (canAutoBindFromStream && !selectedVehicleId) {
+          setSelectedVehicleId(event.vehicle_id);
+          setLatestPosition(event);
+          return;
+        }
+
+        if (event.vehicle_id !== trackedVehicleId) {
           return;
         }
 
@@ -123,7 +150,7 @@ export function TelemetryScreen() {
     return () => {
       disconnectPositions();
     };
-  }, [session?.accessToken, trackedVehicleId]);
+  }, [hasSessionVehicle, selectedVehicleId, session?.accessToken, trackedVehicleId, vehicles.length]);
 
   useEffect(() => {
     mapRef.current?.animateToRegion(toRegion(currentCoords.lat, currentCoords.lng), 450);
@@ -138,26 +165,33 @@ export function TelemetryScreen() {
       return;
     }
 
+    const panicVehicleId = latestPosition?.vehicle_id || trackedVehicle?.vehicle_id || trackedVehicleId;
+
+    if (!panicVehicleId) {
+      return;
+    }
+
     setSendingPanic(true);
-    setPanicMessage(null);
 
     try {
+      const nextPanicState = !panicActive;
+
       await sendTelemetry(
         {
-          vehicle_id: trackedVehicleId,
+          vehicle_id: panicVehicleId,
           lat: currentCoords.lat,
           lng: currentCoords.lng,
           speed_kmh: latestPosition?.speed_kmh ?? 0,
-          status: 'panic',
-          panic_button: true,
+          status: nextPanicState ? 'panic' : 'active',
+          panic_button: nextPanicState,
           timestamp: new Date().toISOString()
         },
         session?.accessToken
       );
 
-      setPanicMessage('Alerta de panico enviada correctamente.');
-    } catch (error) {
-      setPanicMessage(formatServiceError(error, 'No se pudo enviar la alerta de panico.'));
+      setPanicActive(nextPanicState);
+    } catch {
+      // Se omite card/badge de mensaje por requerimiento de UX.
     } finally {
       setSendingPanic(false);
     }
@@ -229,17 +263,19 @@ export function TelemetryScreen() {
       </View>
 
       <View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + 10 }]}> 
-        {panicMessage ? <Text style={styles.infoBanner}>{panicMessage}</Text> : null}
-
         <View style={styles.bottomBar}>
           <Pressable onPress={focusVehicleOnMap} style={[styles.tabButton, styles.tabButtonActive]}>
             <Ionicons color={colors.primaryDark} name="navigate" size={20} />
             <Text style={[styles.tabText, styles.tabTextActive]}>Navegacion</Text>
           </Pressable>
 
-          <Pressable disabled={sendingPanic} onPress={triggerPanic} style={[styles.panicButton, sendingPanic && styles.disabledButton]}>
-            <Ionicons color="#ffffff" name="alert" size={20} />
-            <Text style={styles.panicText}>{sendingPanic ? 'Enviando' : 'Panico'}</Text>
+          <Pressable
+            disabled={sendingPanic}
+            onPress={triggerPanic}
+            style={[styles.panicButton, panicActive && styles.panicButtonActive, sendingPanic && styles.disabledButton]}
+          >
+            <Ionicons color="#ffffff" name={panicActive ? 'alert-circle' : 'alert'} size={20} />
+            <Text style={styles.panicText}>{sendingPanic ? 'Enviando' : panicActive ? 'Panico ON' : 'Panico OFF'}</Text>
           </Pressable>
         </View>
       </View>
@@ -266,17 +302,6 @@ const styles = StyleSheet.create({
     right: 12,
     bottom: 0,
     gap: 8
-  },
-  infoBanner: {
-    color: colors.text,
-    fontWeight: '700',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignSelf: 'center'
   },
   vehicleMarkerWrap: {
     alignItems: 'center'
@@ -424,5 +449,8 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.65
-  }
+  },
+  panicButtonActive: {
+    backgroundColor: '#b91c1c'
+  },
 });

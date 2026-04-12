@@ -59,3 +59,20 @@ export type TripState = {
     lng: number;
   };
 };
+
+export type LocalTelemetryStatus = 'pending' | 'sending' | 'sent' | 'failed';
+
+export type LocalTelemetryEvent = {
+  id: string;
+  vehicleId: string;
+  lat: number;
+  lng: number;
+  speedKmh: number;
+  status: string;
+  panicButton?: boolean;
+  timestamp: string;
+  deliveryStatus: LocalTelemetryStatus;
+  retryCount: number;
+  errorMessage?: string;
+  sentAt?: string;
+};

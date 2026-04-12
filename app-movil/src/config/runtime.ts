@@ -34,5 +34,3 @@ export const INGESTION_GPS_URL = `${apiBaseUrl}/ingestion/api/v1/ingestion/gps`;
 
 export const POSITIONS_WS_URL = `${wsBaseUrl}/ws/positions`;
 export const ALERTS_WS_URL = `${wsBaseUrl}/ws/alerts`;
-
-export const DEFAULT_VEHICLE_ID = process.env.EXPO_PUBLIC_DEFAULT_VEHICLE_ID || 'SIM-00001';
