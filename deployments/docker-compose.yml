@@ -194,6 +194,7 @@ services:
     environment:
       VEHICLE_SERVICE_PORT: ${VEHICLE_SERVICE_PORT}
       INGESTION_BASE_URL: ${INGESTION_BASE_URL}
+      REDIS_URL: ${REDIS_URL}
       POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
@@ -204,6 +205,7 @@ services:
       - "${VEHICLE_SERVICE_PORT}:8094"
     depends_on:
       - postgres
+      - redis
     restart: unless-stopped
 
 volumes:

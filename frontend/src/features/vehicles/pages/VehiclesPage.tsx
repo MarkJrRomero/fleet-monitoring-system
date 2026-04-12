@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Car, RefreshCw } from 'lucide-react';
+import { Car, RefreshCw, Trash2 } from 'lucide-react';
 import { clearSession, getUsername } from '../../auth/services/authService';
 import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../../dashboard/utils/vehicleStatus';
 import { getMainNavItems } from '../../../shared/config/navItems';
@@ -7,6 +7,7 @@ import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { StatusBadge } from '../../../shared/components/StatusBadge';
 import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { AppShell } from '../../../shared/layouts/AppShell';
+import { confirmAction, showError, showSuccess } from '../../../shared/ui/alerts';
 
 type Vehicle = {
   vehicle_id: string;
@@ -22,6 +23,8 @@ type VehiclesResponse = {
   total: number;
 };
 
+type DeleteScope = 'vehicle_only' | 'with_history';
+
 export function VehiclesPage() {
   usePageSeo({
     title: 'SMTF | Vehiculos',
@@ -33,6 +36,7 @@ export function VehiclesPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
+  const [deletingVehicleIDs, setDeletingVehicleIDs] = useState<Record<string, boolean>>({});
 
   const loadVehicles = async () => {
     setIsLoading(true);
@@ -73,6 +77,47 @@ export function VehiclesPage() {
   const onLogout = () => {
     clearSession();
     window.location.href = '/login';
+  };
+
+  const deleteVehicle = async (vehicleID: string, scope: DeleteScope) => {
+    const isVehicleOnly = scope === 'vehicle_only';
+    const confirmed = await confirmAction({
+      title: isVehicleOnly ? 'Eliminar solo vehiculo' : 'Eliminar vehiculo y su historico',
+      text: isVehicleOnly
+        ? `Se eliminara ${vehicleID} del catalogo, pero se conservara el historico de GPS.`
+        : `Se eliminara ${vehicleID} del catalogo y tambien su historico de GPS persistido.`,
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar'
+    });
+
+    if (!confirmed) return;
+
+    setDeletingVehicleIDs((prev) => ({ ...prev, [vehicleID]: true }));
+    try {
+      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles/${vehicleID}?scope=${scope}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        throw new Error('No fue posible eliminar el vehiculo');
+      }
+
+      setVehicles((prev) => prev.filter((item) => item.vehicle_id !== vehicleID));
+      await showSuccess(
+        'Vehiculo eliminado',
+        isVehicleOnly
+          ? `${vehicleID} fue eliminado del catalogo y se conservo su historico.`
+          : `${vehicleID} fue eliminado junto con su historico.`
+      );
+    } catch {
+      await showError('Error eliminando vehiculo', 'Intenta nuevamente en unos segundos.');
+    } finally {
+      setDeletingVehicleIDs((prev) => {
+        const next = { ...prev };
+        delete next[vehicleID];
+        return next;
+      });
+    }
   };
 
   return (
@@ -121,6 +166,7 @@ export function VehiclesPage() {
                   <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Lat</th>
                   <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Lng</th>
                   <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Creado</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/10 bg-surface">
@@ -139,11 +185,34 @@ export function VehiclesPage() {
                     <td className="px-4 py-3 text-sm text-on-surface-variant">
                       {vehicle.created_at ? new Date(vehicle.created_at).toLocaleString() : '--'}
                     </td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={Boolean(deletingVehicleIDs[vehicle.vehicle_id])}
+                          onClick={() => void deleteVehicle(vehicle.vehicle_id, 'vehicle_only')}
+                          type="button"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {deletingVehicleIDs[vehicle.vehicle_id] ? 'Eliminando...' : 'Solo vehiculo'}
+                        </button>
+
+                        <button
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={Boolean(deletingVehicleIDs[vehicle.vehicle_id])}
+                          onClick={() => void deleteVehicle(vehicle.vehicle_id, 'with_history')}
+                          type="button"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {deletingVehicleIDs[vehicle.vehicle_id] ? 'Eliminando...' : 'Vehiculo + historico'}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {sortedVehicles.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-sm text-on-surface-variant" colSpan={6}>
+                    <td className="px-4 py-8 text-center text-sm text-on-surface-variant" colSpan={7}>
                       Sin vehiculos registrados. Puedes crear uno desde el boton Crear individual.
                     </td>
                   </tr>

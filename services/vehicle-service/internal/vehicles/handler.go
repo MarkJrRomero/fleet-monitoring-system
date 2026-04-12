@@ -11,12 +11,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type Handler struct {
 	db        *pgxpool.Pool
 	simulator *simulator
+	redis     *redis.Client
 }
 
 type Vehicle struct {
@@ -63,6 +66,13 @@ type simulationTraceResponse struct {
 	Items []simulationTransmission `json:"items"`
 }
 
+type deleteScope string
+
+const (
+	deleteScopeVehicleOnly deleteScope = "vehicle_only"
+	deleteScopeWithHistory deleteScope = "with_history"
+)
+
 var idPattern = regexp.MustCompile(`^[A-Z0-9_-]{3,40}$`)
 var imeiPattern = regexp.MustCompile(`^[0-9]{15}$`)
 
@@ -76,7 +86,11 @@ const (
 )
 
 func NewHandler(db *pgxpool.Pool, sim *simulator) *Handler {
-	return &Handler{db: db, simulator: sim}
+	return &Handler{db: db, simulator: sim, redis: nil}
+}
+
+func NewHandlerWithCache(db *pgxpool.Pool, sim *simulator, redisClient *redis.Client) *Handler {
+	return &Handler{db: db, simulator: sim, redis: redisClient}
 }
 
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
@@ -274,6 +288,217 @@ func (h *Handler) UpdateVehicle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"vehicle_id": vehicleID, "status": *req.Status})
 }
 
+func (h *Handler) DeleteVehicle(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vehicleID, err := parseVehicleIDFromPath(r.URL.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	scope, err := parseDeleteScope(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "error iniciando transaccion")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	vehicleTag, err := tx.Exec(ctx, `DELETE FROM vehicles WHERE vehicle_id = $1`, vehicleID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "error eliminando vehiculo")
+		return
+	}
+	if vehicleTag.RowsAffected() == 0 {
+		writeError(w, http.StatusNotFound, "vehiculo no encontrado")
+		return
+	}
+
+	if scope == deleteScopeWithHistory {
+		if _, err := tx.Exec(ctx, `DELETE FROM gps_locations WHERE vehicle_id = $1`, vehicleID); err != nil {
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "42P01" {
+				writeError(w, http.StatusInternalServerError, "error eliminando historico de gps")
+				return
+			}
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO vehicle_cache_invalidation_jobs (vehicle_id, status, next_attempt_at)
+		VALUES ($1, 'pending', NOW())
+	`, vehicleID); err != nil {
+		writeError(w, http.StatusInternalServerError, "error registrando invalidacion de cache")
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		writeError(w, http.StatusInternalServerError, "error confirmando eliminacion")
+		return
+	}
+
+	// Attempt immediate invalidation to reduce stale reads; retries are handled by worker.
+	h.processCacheInvalidationBatch(context.Background(), 5)
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"vehicle_id":            vehicleID,
+		"status":                "deleted",
+		"scope":                 string(scope),
+		"cache_consistency":     "eventual",
+		"cache_invalidationJob": "queued",
+	})
+}
+
+func parseDeleteScope(r *http.Request) (deleteScope, error) {
+	raw := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope")))
+	if raw == "" {
+		return deleteScopeWithHistory, nil
+	}
+
+	scope := deleteScope(raw)
+	if scope != deleteScopeVehicleOnly && scope != deleteScopeWithHistory {
+		return "", errors.New("scope invalido: usa vehicle_only o with_history")
+	}
+
+	return scope, nil
+}
+
+func (h *Handler) StartCacheInvalidationWorker(ctx context.Context, interval time.Duration) {
+	if h.redis == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.processCacheInvalidationBatch(ctx, 50)
+		}
+	}
+}
+
+func (h *Handler) processCacheInvalidationBatch(ctx context.Context, limit int) {
+	if h.redis == nil || limit <= 0 {
+		return
+	}
+
+	rows, err := h.db.Query(ctx, `
+		SELECT id, vehicle_id, attempts
+		FROM vehicle_cache_invalidation_jobs
+		WHERE status = 'pending' AND next_attempt_at <= NOW()
+		ORDER BY id ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type invalidationJob struct {
+		ID        int64
+		VehicleID string
+		Attempts  int
+	}
+
+	jobs := make([]invalidationJob, 0, limit)
+	for rows.Next() {
+		var job invalidationJob
+		if scanErr := rows.Scan(&job.ID, &job.VehicleID, &job.Attempts); scanErr != nil {
+			return
+		}
+		jobs = append(jobs, job)
+	}
+
+	for _, job := range jobs {
+		invalidateErr := h.invalidateVehicleCache(ctx, job.VehicleID)
+		if invalidateErr == nil {
+			_, _ = h.db.Exec(ctx, `
+				UPDATE vehicle_cache_invalidation_jobs
+				SET status = 'done', updated_at = NOW(), last_error = ''
+				WHERE id = $1
+			`, job.ID)
+			continue
+		}
+
+		_, _ = h.db.Exec(ctx, `
+			UPDATE vehicle_cache_invalidation_jobs
+			SET attempts = attempts + 1,
+				updated_at = NOW(),
+				last_error = $2,
+				next_attempt_at = NOW() + make_interval(secs => LEAST(300, (attempts + 1) * 10))
+			WHERE id = $1
+		`, job.ID, invalidateErr.Error())
+	}
+}
+
+func (h *Handler) invalidateVehicleCache(ctx context.Context, vehicleID string) error {
+	if h.redis == nil {
+		return nil
+	}
+
+	directKeys := []string{
+		fmt.Sprintf("gps:recent:%s", vehicleID),
+		fmt.Sprintf("gps:last:%s", vehicleID),
+		fmt.Sprintf("alert:overspeed:%s", vehicleID),
+		fmt.Sprintf("alert:panic:%s", vehicleID),
+	}
+
+	var lastErr error
+	if err := h.redis.Del(ctx, directKeys...).Err(); err != nil {
+		lastErr = err
+	}
+
+	patterns := []string{
+		fmt.Sprintf("gps:dedupe:%s:*", vehicleID),
+		fmt.Sprintf("alert:stopped:%s:*", vehicleID),
+	}
+
+	for _, pattern := range patterns {
+		if err := h.deleteKeysByPattern(ctx, pattern); err != nil {
+			lastErr = err
+		}
+	}
+
+	return lastErr
+}
+
+func (h *Handler) deleteKeysByPattern(ctx context.Context, pattern string) error {
+	if h.redis == nil {
+		return nil
+	}
+
+	var cursor uint64
+	for {
+		keys, nextCursor, err := h.redis.Scan(ctx, cursor, pattern, 200).Result()
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if delErr := h.redis.Del(ctx, keys...).Err(); delErr != nil {
+				return delErr
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return nil
+}
+
 func (h *Handler) GetSimulationStatus(w http.ResponseWriter, _ *http.Request) {
 	if h.simulator == nil {
 		writeError(w, http.StatusServiceUnavailable, "simulador no disponible")
@@ -403,6 +628,20 @@ func EnsureSchema(ctx context.Context, db *pgxpool.Pool) error {
 
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_imei_unique
 		ON vehicles (imei);
+
+		CREATE TABLE IF NOT EXISTS vehicle_cache_invalidation_jobs (
+			id BIGSERIAL PRIMARY KEY,
+			vehicle_id TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_vehicle_cache_invalidation_jobs_pending
+		ON vehicle_cache_invalidation_jobs (status, next_attempt_at);
 	`)
 	return err
 }
