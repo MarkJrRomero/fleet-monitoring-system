@@ -7,8 +7,8 @@
   },
   "servers": [
     {
-      "url": "http://localhost:8094",
-      "description": "Vehicle Service local"
+      "url": "/vehicle",
+      "description": "Vehicle Service via Nginx gateway"
     }
   ],
   "tags": [

@@ -185,8 +185,8 @@ npm run start
 Variables opcionales para conectar a backend desde simulador/dispositivo:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://localhost
-EXPO_PUBLIC_WS_BASE_URL=ws://localhost
+EXPO_PUBLIC_API_BASE_URL=http://localhost:8082
+EXPO_PUBLIC_WS_BASE_URL=ws://localhost:8082
 EXPO_PUBLIC_AUTH_CLIENT_ID=fleet-web-client
 EXPO_PUBLIC_DEFAULT_VEHICLE_ID=SIM-00001
 ```
@@ -194,11 +194,18 @@ EXPO_PUBLIC_DEFAULT_VEHICLE_ID=SIM-00001
 Ejemplo para telefono en red local (usa la IP LAN de tu PC):
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://192.168.1.50
-EXPO_PUBLIC_WS_BASE_URL=ws://192.168.1.50
+EXPO_PUBLIC_API_BASE_URL=http://192.168.1.50:8082
+EXPO_PUBLIC_WS_BASE_URL=ws://192.168.1.50:8082
 ```
 
-Nota Android emulator: normalmente usar `EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2`.
+La app movil consume el gateway Nginx, no los microservicios por puerto directo. Las rutas efectivas quedan asi:
+
+- Auth: `/auth/*`
+- Vehicle Service: `/vehicle/*`
+- Ingestion Service: `/ingestion/*`
+- WebSocket Service: `/ws/*`
+
+Nota Android emulator: normalmente usar `EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:8082`.
 
 ## Propuesta arquitectonica movil (produccion)
 

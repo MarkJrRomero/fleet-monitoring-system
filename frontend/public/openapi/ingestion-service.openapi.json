@@ -7,8 +7,8 @@
   },
   "servers": [
     {
-      "url": "http://localhost:8091",
-      "description": "Ingestion Service local"
+      "url": "/ingestion",
+      "description": "Ingestion Service via Nginx gateway"
     }
   ],
   "tags": [

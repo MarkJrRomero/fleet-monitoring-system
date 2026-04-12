@@ -7,8 +7,8 @@
   },
   "servers": [
     {
-      "url": "http://localhost:8093",
-      "description": "WebSocket Service local"
+      "url": "/",
+      "description": "WebSocket Service via Nginx gateway"
     }
   ],
   "tags": [
