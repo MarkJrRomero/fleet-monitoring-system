@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Car } from 'lucide-react';
+import { Car, RefreshCw } from 'lucide-react';
 import { clearSession, getUsername } from '../../auth/services/authService';
 import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../../dashboard/utils/vehicleStatus';
 import { getMainNavItems } from '../../../shared/config/navItems';
@@ -100,8 +100,13 @@ export function VehiclesPage() {
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-headline text-xl font-bold">Tabla de vehiculos</h2>
             <div className="flex gap-2">
-              <button className="rounded-lg border border-outline-variant/30 bg-surface px-3 py-1.5 text-sm" onClick={() => void loadVehicles()}>
-                {isLoading ? 'Actualizando...' : 'Refrescar'}
+              <button
+                aria-label="Refrescar vehiculos"
+                className="rounded-lg border border-outline-variant/30 bg-surface p-2 text-sm text-on-surface-variant transition hover:bg-surface-container"
+                onClick={() => void loadVehicles()}
+                type="button"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>

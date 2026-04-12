@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Car, CirclePause } from 'lucide-react';
-import { CircleMarker, MapContainer, Popup, TileLayer } from 'react-leaflet';
+import { gsap } from 'gsap';
+import { AlertTriangle, Car, CirclePause, MapPin, Gauge, Wifi, WifiOff, X } from 'lucide-react';
+import { CircleMarker, MapContainer, TileLayer } from 'react-leaflet';
 import { useMap } from 'react-leaflet/hooks';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'leaflet/dist/leaflet.css';
@@ -102,13 +103,6 @@ function statusFromAlert(type?: string, fallback?: string): string {
   return fallback || 'unknown';
 }
 
-function getMapBadgeStyle(status?: string): React.CSSProperties {
-  return {
-    backgroundColor: getVehicleMapColor(status),
-    color: '#ffffff'
-  };
-}
-
 function FocusMapOnVehicle({ target }: { target: [number, number] | null }) {
   const map = useMap();
 
@@ -117,9 +111,17 @@ function FocusMapOnVehicle({ target }: { target: [number, number] | null }) {
       return;
     }
 
-    const maxZoom = map.getMaxZoom();
-    const zoomToUse = Number.isFinite(maxZoom) ? maxZoom : 19;
-    map.flyTo(target, zoomToUse, { duration: 0.8 });
+    const currentZoom = map.getZoom();
+    const currentCenter = map.getCenter();
+    const distance = map.distance(currentCenter, target);
+    const focusZoom = Math.min(Math.max(currentZoom, 16), 17);
+
+    if (currentZoom >= 16 && distance < 180) {
+      map.panTo(target, { animate: true, duration: 0.55 });
+      return;
+    }
+
+    map.flyTo(target, focusZoom, { duration: 0.95, easeLinearity: 0.18 });
   }, [map, target]);
 
   return null;
@@ -127,59 +129,39 @@ function FocusMapOnVehicle({ target }: { target: [number, number] | null }) {
 
 function AnimatedVehicleMarker({
   vehicle,
-  selected
+  selected,
+  onMarkerClick
 }: {
   vehicle: DashboardVehicle;
   selected: boolean;
+  onMarkerClick: () => void;
 }) {
   const [displayPosition, setDisplayPosition] = useState<[number, number]>([vehicle.lat, vehicle.lng]);
-  const currentPositionRef = useRef<[number, number]>([vehicle.lat, vehicle.lng]);
-  const frameRef = useRef<number | null>(null);
+  const currentPositionRef = useRef({ lat: vehicle.lat, lng: vehicle.lng });
+  const tweenRef = useRef<gsap.core.Tween | null>(null);
 
   useEffect(() => {
     const from = currentPositionRef.current;
-    const to: [number, number] = [vehicle.lat, vehicle.lng];
-
-    const deltaLat = Math.abs(to[0] - from[0]);
-    const deltaLng = Math.abs(to[1] - from[1]);
+    const deltaLat = Math.abs(vehicle.lat - from.lat);
+    const deltaLng = Math.abs(vehicle.lng - from.lng);
     if (deltaLat < 0.0000001 && deltaLng < 0.0000001) {
       return;
     }
 
-    if (frameRef.current !== null) {
-      window.cancelAnimationFrame(frameRef.current);
-    }
-
-    const start = performance.now();
-    const duration = 900;
-
-    const step = (timestamp: number) => {
-      const progress = Math.min((timestamp - start) / duration, 1);
-      const eased = progress < 0.5
-        ? 4 * progress * progress * progress
-        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-
-      const next: [number, number] = [
-        from[0] + (to[0] - from[0]) * eased,
-        from[1] + (to[1] - from[1]) * eased
-      ];
-
-      currentPositionRef.current = next;
-      setDisplayPosition(next);
-
-      if (progress < 1) {
-        frameRef.current = window.requestAnimationFrame(step);
-      } else {
-        frameRef.current = null;
+    tweenRef.current?.kill();
+    tweenRef.current = gsap.to(currentPositionRef.current, {
+      lat: vehicle.lat,
+      lng: vehicle.lng,
+      duration: 1.45,
+      ease: 'sine.out',
+      overwrite: 'auto',
+      onUpdate: () => {
+        setDisplayPosition([currentPositionRef.current.lat, currentPositionRef.current.lng]);
       }
-    };
-
-    frameRef.current = window.requestAnimationFrame(step);
+    });
 
     return () => {
-      if (frameRef.current !== null) {
-        window.cancelAnimationFrame(frameRef.current);
-      }
+      tweenRef.current?.kill();
     };
   }, [vehicle.lat, vehicle.lng]);
 
@@ -188,23 +170,196 @@ function AnimatedVehicleMarker({
       center={displayPosition}
       fillColor={getVehicleMapColor(vehicle.status)}
       fillOpacity={vehicle.isReporting ? 0.88 : 0.64}
-      pathOptions={{ color: selected ? '#00F1C6' : '#ffffff', weight: 1.8 }}
+      pathOptions={{ color: selected ? '#0ea5e9' : '#ffffff', weight: selected ? 2.3 : 1.8 }}
       radius={VEHICLE_PIN_RADIUS}
+      eventHandlers={{ click: onMarkerClick }}
+    />
+  );
+}
+
+interface VehicleDetailCardProps {
+  vehicle: DashboardVehicle;
+  onClose: () => void;
+}
+
+function VehicleDetailCard({ vehicle, onClose }: VehicleDetailCardProps) {
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!cardRef.current) return;
+    gsap.fromTo(
+      cardRef.current,
+      { y: 18, opacity: 0, scale: 0.96 },
+      { y: 0, opacity: 1, scale: 1, duration: 0.32, ease: 'power3.out' }
+    );
+  }, []);
+
+  const accentColor = getVehicleMapColor(vehicle.status);
+
+  return (
+    <div
+      ref={cardRef}
+      className="absolute bottom-5 right-5 z-[1000] w-72 rounded-2xl border border-white/70 border-t-[3px] bg-white/95 shadow-2xl backdrop-blur-xl"
+      style={{ borderTopColor: accentColor }}
     >
-      <Popup>
-        <div className="text-xs text-slate-900">
-          <div className="font-semibold">{vehicle.vehicle_id}</div>
-          <div>IMEI: {vehicle.imei}</div>
-          <div>
-            {vehicle.lat.toFixed(5)}, {vehicle.lng.toFixed(5)}
+      <div className="p-4">
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-extrabold text-slate-800" title={vehicle.vehicle_id}>
+              {vehicle.vehicle_id}
+            </p>
+            <p className="truncate text-[11px] text-slate-400">IMEI: {vehicle.imei}</p>
           </div>
-          <div>Velocidad: {(vehicle.speed_kmh ?? 0).toFixed(1)} km/h</div>
-          <div>Ubicacion: {vehicle.location_label || 'Sin ubicacion'}</div>
-          <div>Estado: {getVehicleStatusLabel(vehicle.status)}</div>
-          <div>{vehicle.last_reported_at ? `Ultimo reporte: ${new Date(vehicle.last_reported_at).toLocaleString()}` : 'Sin reporte reciente'}</div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-sm"
+              style={{ backgroundColor: accentColor }}
+            >
+              {vehicle.latest_alert_type || getVehicleStatusLabel(vehicle.status)}
+            </span>
+            <button
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700"
+              onClick={onClose}
+              type="button"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
-      </Popup>
-    </CircleMarker>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
+            <Gauge className="h-4 w-4 shrink-0 text-slate-400" />
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Velocidad</p>
+              <p className="text-sm font-bold text-slate-700">{(vehicle.speed_kmh ?? 0).toFixed(1)} km/h</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
+            {vehicle.isReporting
+              ? <Wifi className="h-4 w-4 shrink-0 text-teal-500" />
+              : <WifiOff className="h-4 w-4 shrink-0 text-slate-400" />}
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Conexion</p>
+              <p className={`text-sm font-bold ${vehicle.isReporting ? 'text-teal-600' : 'text-slate-400'}`}>
+                {vehicle.isReporting ? 'En linea' : 'Sin senal'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {(vehicle.location_label && vehicle.location_label !== 'Sin ubicacion') && (
+          <div className="mt-2 flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+            <p className="line-clamp-2 text-[11px] font-medium text-slate-600">{vehicle.location_label}</p>
+          </div>
+        )}
+
+        <div className="mt-2.5 space-y-0.5">
+          <p className="text-[11px] text-slate-400">
+            {vehicle.lat.toFixed(5)}, {vehicle.lng.toFixed(5)}
+          </p>
+          {vehicle.last_reported_at && (
+            <p className="text-[11px] text-slate-400">
+              Ultimo reporte: {new Date(vehicle.last_reported_at).toLocaleString()}
+            </p>
+          )}
+        </div>
+
+        {vehicle.latest_alert_type && (
+          <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-rose-400">Alerta activa</p>
+            <p className="text-[11px] font-semibold text-rose-700">{vehicle.latest_alert_type}</p>
+            {vehicle.latest_alert_message && (
+              <p className="text-[11px] text-rose-500">{vehicle.latest_alert_message}</p>
+            )}
+            {vehicle.latest_alert_at && (
+              <p className="text-[10px] text-rose-400">{new Date(vehicle.latest_alert_at).toLocaleString()}</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface VehicleCardListProps {
+  vehicles: DashboardVehicle[];
+  selectedVehicleId: string | null;
+  flashingVehicleIds: Set<string>;
+  onVehicleCardClick: (vehicle: DashboardVehicle) => void;
+}
+
+function VehicleCardList({ vehicles, selectedVehicleId, flashingVehicleIds, onVehicleCardClick }: VehicleCardListProps) {
+  return (
+    <div className="space-y-2">
+      {vehicles.map((vehicle) => (
+        <div key={vehicle.vehicle_id} className="vehicle-card" data-vehicle-id={vehicle.vehicle_id}>
+          <button
+            data-vehicle-id={vehicle.vehicle_id}
+            className={`w-full overflow-hidden rounded-2xl border bg-white/90 p-3.5 text-left shadow-sm transition-[border-color,box-shadow,background-color] duration-300 hover:shadow-md hover:border-teal-300/70 ${
+              flashingVehicleIds.has(vehicle.vehicle_id)
+                ? 'border-sky-500'
+                : selectedVehicleId === vehicle.vehicle_id
+                ? 'border-teal-500 bg-white shadow-md ring-2 ring-teal-200/60'
+                : 'border-slate-200/70'
+            }`}
+            onClick={() => onVehicleCardClick(vehicle)}
+            type="button"
+          >
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-slate-800" title={vehicle.vehicle_id}>{vehicle.vehicle_id}</p>
+                <p className="truncate text-[11px] text-slate-400" title={`IMEI: ${vehicle.imei}`}>IMEI: {vehicle.imei}</p>
+              </div>
+
+              <span
+                className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-sm"
+                style={{ backgroundColor: getVehicleMapColor(vehicle.status) }}
+                title={vehicle.latest_alert_type || getVehicleStatusLabel(vehicle.status)}
+              >
+                {vehicle.latest_alert_type || getVehicleStatusLabel(vehicle.status)}
+              </span>
+            </div>
+
+            <p
+              className="mt-1 max-h-9 overflow-hidden text-[11px] leading-5 text-slate-500"
+              title={vehicle.latest_alert_message || vehicle.location_label || 'Sin novedades de alerta'}
+            >
+              {vehicle.latest_alert_message || vehicle.location_label || 'Sin novedades de alerta'}
+            </p>
+
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
+              <div className="min-w-0 rounded-xl bg-slate-50 px-2.5 py-1.5">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Velocidad</p>
+                <p className="truncate text-[11px] font-semibold text-slate-700">{(vehicle.speed_kmh ?? 0).toFixed(1)} km/h</p>
+              </div>
+              <div className="min-w-0 rounded-xl bg-slate-50 px-2.5 py-1.5">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Conexion</p>
+                <p className={`truncate text-[11px] font-semibold ${vehicle.isReporting ? 'text-teal-600' : 'text-slate-400'}`}>
+                  {vehicle.isReporting ? 'En linea' : 'Sin senal'}
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-2 truncate text-[10px] text-slate-400" title={`${vehicle.lat.toFixed(5)}, ${vehicle.lng.toFixed(5)}`}>
+              {vehicle.lat.toFixed(5)}, {vehicle.lng.toFixed(5)}
+            </p>
+
+            <p className="text-[10px] text-slate-400">
+              {vehicle.latest_alert_at
+                ? `Alerta: ${new Date(vehicle.latest_alert_at).toLocaleString()}`
+                : 'Monitoreo en tiempo real'}
+            </p>
+          </button>
+
+          {selectedVehicleId === vehicle.vehicle_id ? (
+            <div className="my-2 border-t-2 border-dashed border-teal-300/50" />
+          ) : null}
+
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -225,6 +380,7 @@ export function DashboardPage() {
   const [flashingVehicleIds, setFlashingVehicleIds] = useState<Set<string>>(new Set());
   const previousVehicleSnapshotRef = useRef<Map<string, string>>(new Map());
   const flashTimeoutsRef = useRef<Map<string, number>>(new Map());
+  const lastFlashAtRef = useRef<Map<string, number>>(new Map());
   const alertsContainerRef = useRef<HTMLDivElement | null>(null);
 
   const loadVehiclesCatalog = async () => {
@@ -340,15 +496,30 @@ export function DashboardPage() {
       return;
     }
 
+    const now = Date.now();
+    const flashCooldownMs = 1300;
+    const eligibleIds = changedIds.filter((id) => {
+      const lastAt = lastFlashAtRef.current.get(id) ?? 0;
+      if (now - lastAt < flashCooldownMs) {
+        return false;
+      }
+      lastFlashAtRef.current.set(id, now);
+      return true;
+    });
+
+    if (eligibleIds.length === 0) {
+      return;
+    }
+
     setFlashingVehicleIds((prev) => {
       const next = new Set(prev);
-      for (const id of changedIds) {
+      for (const id of eligibleIds) {
         next.add(id);
       }
       return next;
     });
 
-    for (const id of changedIds) {
+    for (const id of eligibleIds) {
       const existingTimeout = flashTimeoutsRef.current.get(id);
       if (existingTimeout) {
         window.clearTimeout(existingTimeout);
@@ -364,7 +535,7 @@ export function DashboardPage() {
           return next;
         });
         flashTimeoutsRef.current.delete(id);
-      }, 850);
+      }, 1200);
 
       flashTimeoutsRef.current.set(id, timeoutId);
     }
@@ -374,6 +545,7 @@ export function DashboardPage() {
     return () => {
       flashTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
       flashTimeoutsRef.current.clear();
+      lastFlashAtRef.current.clear();
     };
   }, []);
 
@@ -481,6 +653,33 @@ export function DashboardPage() {
     });
   };
 
+  const onDetailClose = () => {
+    setSelectedVehicleId(null);
+    setFocusedPosition(null);
+  };
+
+  const activeDetailVehicle = useMemo(
+    () => (selectedVehicleId ? allVehicles.find((v) => v.vehicle_id === selectedVehicleId) ?? null : null),
+    [selectedVehicleId, allVehicles]
+  );
+
+  const onMarkerClick = (vehicle: DashboardVehicle) => {
+    setSelectedVehicleId(vehicle.vehicle_id);
+    setFocusedPosition([vehicle.lat, vehicle.lng]);
+  };
+
+  const metricsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!metricsRef.current) return;
+    const items = metricsRef.current.querySelectorAll('.metric-item');
+    gsap.fromTo(
+      items,
+      { y: 12, opacity: 0 },
+      { y: 0, opacity: 1, duration: 0.45, stagger: 0.1, ease: 'power2.out' }
+    );
+  }, []);
+
   const onLogout = () => {
     clearSession();
     window.location.href = '/login';
@@ -492,126 +691,76 @@ export function DashboardPage() {
       username={username}
       navItems={getMainNavItems('/')}
       headerRight={
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-on-surface">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/20 text-cyan-700">
+        <div ref={metricsRef} className="flex flex-wrap items-center gap-2">
+          <div className="metric-item flex min-w-[110px] items-center gap-2 rounded-xl border border-teal-200/60 bg-white/80 px-3 py-1.5 shadow-sm backdrop-blur-sm">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
               <Car className="h-4 w-4" />
             </span>
             <div className="leading-tight">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-800">Vehiculos</p>
-              <p className="text-sm font-bold">{allVehicles.length}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-teal-600">Vehiculos</p>
+              <p className="text-sm font-bold text-slate-800">{allVehicles.length}</p>
             </div>
           </div>
 
-          <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-on-surface">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/20 text-amber-700">
+          <div className="metric-item flex min-w-[110px] items-center gap-2 rounded-xl border border-amber-200/60 bg-white/80 px-3 py-1.5 shadow-sm backdrop-blur-sm">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
               <AlertTriangle className="h-4 w-4" />
             </span>
             <div className="leading-tight">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800">Alertas</p>
-              <p className="text-sm font-bold">{alertSummary.total}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Alertas</p>
+              <p className="text-sm font-bold text-slate-800">{alertSummary.total}</p>
             </div>
           </div>
 
-          <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-1.5 text-on-surface">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-500/20 text-rose-700">
+          <div className="metric-item flex min-w-[110px] items-center gap-2 rounded-xl border border-rose-200/60 bg-white/80 px-3 py-1.5 shadow-sm backdrop-blur-sm">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
               <CirclePause className="h-4 w-4" />
             </span>
             <div className="leading-tight">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-800">Detenidos</p>
-              <p className="text-sm font-bold">{alertSummary.stopped}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-rose-600">Detenidos</p>
+              <p className="text-sm font-bold text-slate-800">{alertSummary.stopped}</p>
             </div>
           </div>
         </div>
       }
       onLogout={onLogout}
     >
-      <section className="h-[calc(100vh-110px)] overflow-hidden">
-        <div className="grid h-full min-h-0 grid-cols-1 gap-4 xl:grid-cols-12">
+      <section className="overflow-visible xl:h-[calc(100vh-110px)] xl:overflow-hidden">
+        <div className="grid min-h-0 grid-cols-1 gap-4 xl:h-full xl:grid-cols-12">
           <div className="min-h-0 xl:col-span-5 xl:h-full">
-            <article className="flex h-full min-h-0 max-h-full flex-col rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-4">
+            <article className="flex h-full min-h-0 max-h-full flex-col rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="font-headline text-xl font-bold">Alertas activas</h2>
+                <h2 className="font-headline text-xl font-bold text-slate-800">Alertas activas</h2>
               </div>
 
               <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <StyledSelect options={STATUS_PRIORITY_OPTIONS} value={statusPriority} onChange={setStatusPriority} />
 
                 <input
-                  className="w-full rounded-lg border border-outline-variant/25 bg-surface px-3 py-2 text-xs text-on-surface"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-200/50"
                   placeholder="Buscar por placa o IMEI"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                 />
               </div>
 
-              <div ref={alertsContainerRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1" onScroll={onAlertsScroll}>
+              <div ref={alertsContainerRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" onScroll={onAlertsScroll}>
                 {allVehicles.length === 0 ? (
-                  <div className="rounded-xl border border-outline-variant/20 bg-surface p-4 text-sm text-on-surface-variant">Sin vehiculos en catalogo.</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm text-slate-400">Sin vehiculos en catalogo.</div>
                 ) : (
-                  visibleVehicles.map((vehicle) => (
-                    <div key={vehicle.vehicle_id}>
-                      <button
-                        className={`w-full overflow-hidden rounded-xl border bg-gradient-to-br from-surface to-surface-container-low p-3 text-left transition-colors duration-500 hover:border-primary/60 ${selectedVehicleId === vehicle.vehicle_id ? 'border-primary/80 ring-1 ring-primary/40' : 'border-outline-variant/20'} ${flashingVehicleIds.has(vehicle.vehicle_id) ? 'bg-violet-100/70 border-violet-400' : ''}`}
-                        onClick={() => onVehicleCardClick(vehicle)}
-                        type="button"
-                      >
-                        <div className="mb-2 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-base font-bold text-on-surface" title={vehicle.vehicle_id}>{vehicle.vehicle_id}</p>
-                            <p className="truncate text-[11px] text-on-surface-variant" title={`IMEI: ${vehicle.imei}`}>IMEI: {vehicle.imei}</p>
-                          </div>
-
-                          <span
-                            className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider"
-                            style={getMapBadgeStyle(vehicle.status)}
-                            title={vehicle.latest_alert_type || getVehicleStatusLabel(vehicle.status)}
-                          >
-                            {vehicle.latest_alert_type || getVehicleStatusLabel(vehicle.status)}
-                          </span>
-                        </div>
-
-                        <p
-                          className="mt-1 max-h-10 overflow-hidden text-xs leading-5 text-on-surface-variant"
-                          title={vehicle.latest_alert_message || vehicle.location_label || 'Sin novedades de alerta'}
-                        >
-                          {vehicle.latest_alert_message || vehicle.location_label || 'Sin novedades de alerta'}
-                        </p>
-
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-on-surface-variant">
-                          <div className="min-w-0 rounded-lg bg-surface-container px-2 py-1">
-                            <p className="text-[10px] uppercase tracking-wide">Velocidad</p>
-                            <p className="truncate font-medium">{(vehicle.speed_kmh ?? 0).toFixed(1)} km/h</p>
-                          </div>
-                          <div className="min-w-0 rounded-lg bg-surface-container px-2 py-1">
-                            <p className="text-[10px] uppercase tracking-wide">Conexion</p>
-                            <p className="truncate font-medium">{vehicle.isReporting ? 'En linea' : 'Sin senal'}</p>
-                          </div>
-                        </div>
-
-                        <p className="mt-2 truncate text-[11px] text-on-surface-variant" title={`${vehicle.lat.toFixed(5)}, ${vehicle.lng.toFixed(5)}`}>
-                          {vehicle.lat.toFixed(5)}, {vehicle.lng.toFixed(5)}
-                        </p>
-
-                        <p className="text-[11px] text-on-surface-variant">
-                          {vehicle.latest_alert_at
-                            ? `Alerta: ${new Date(vehicle.latest_alert_at).toLocaleString()}`
-                            : 'Monitoreo en tiempo real'}
-                        </p>
-                      </button>
-
-                      {selectedVehicleId === vehicle.vehicle_id ? (
-                        <div className="my-3 border-t-2 border-dashed border-primary/45" />
-                      ) : null}
-                    </div>
-                  ))
+                  <VehicleCardList
+                    vehicles={visibleVehicles}
+                    selectedVehicleId={selectedVehicleId}
+                    flashingVehicleIds={flashingVehicleIds}
+                    onVehicleCardClick={onVehicleCardClick}
+                  />
                 )}
               </div>
             </article>
           </div>
 
-          <article className="min-h-0 rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-3 xl:col-span-7 xl:h-full">
-            <div className="relative h-[420px] min-h-0 overflow-hidden rounded-xl border border-outline-variant/20 xl:h-full">
+          <article className="relative min-h-0 rounded-2xl border border-white/60 bg-white/80 p-3 shadow-sm backdrop-blur-xl xl:col-span-7 xl:h-full">
+            <div className="relative h-[52vh] min-h-[320px] overflow-hidden rounded-xl border border-slate-100 sm:h-[420px] xl:h-full">
               <MapContainer center={mapCenter} className="h-full w-full" scrollWheelZoom zoom={12}>
                 <FocusMapOnVehicle target={focusedPosition} />
                 <TileLayer
@@ -619,18 +768,32 @@ export function DashboardPage() {
                   url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
                 />
 
-                <MarkerClusterGroup chunkedLoading maxClusterRadius={52} spiderfyOnMaxZoom showCoverageOnHover={false}>
+                <MarkerClusterGroup
+                  chunkedLoading
+                  disableClusteringAtZoom={17}
+                  maxClusterRadius={52}
+                  spiderfyOnMaxZoom={false}
+                  showCoverageOnHover={false}
+                >
                   {markers.map((vehicle) => (
                     <AnimatedVehicleMarker
-                      key={`${vehicle.vehicle_id}-${vehicle.status}`}
+                      key={vehicle.vehicle_id}
                       selected={selectedVehicleId === vehicle.vehicle_id}
                       vehicle={vehicle}
+                      onMarkerClick={() => onMarkerClick(vehicle)}
                     />
                   ))}
                 </MarkerClusterGroup>
               </MapContainer>
-
             </div>
+
+            {activeDetailVehicle && (
+              <VehicleDetailCard
+                key={activeDetailVehicle.vehicle_id}
+                vehicle={activeDetailVehicle}
+                onClose={onDetailClose}
+              />
+            )}
           </article>
         </div>
       </section>

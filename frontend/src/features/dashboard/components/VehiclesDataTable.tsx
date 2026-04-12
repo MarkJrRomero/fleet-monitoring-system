@@ -5,7 +5,8 @@ import {
   getPaginationRowModel,
   useReactTable
 } from '@tanstack/react-table';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { gsap } from 'gsap';
 import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
 import { StatusBadge } from '../../../shared/components/StatusBadge';
 import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../utils/vehicleStatus';
@@ -38,6 +39,7 @@ export function VehiclesDataTable({ rows }: VehiclesDataTableProps) {
     pageIndex: 0,
     pageSize: 25
   });
+  const tbodyRef = useRef<HTMLTableSectionElement | null>(null);
 
   const columns = useMemo(
     () => [
@@ -93,25 +95,35 @@ export function VehiclesDataTable({ rows }: VehiclesDataTableProps) {
     getPaginationRowModel: getPaginationRowModel()
   });
 
+  useEffect(() => {
+    if (!tbodyRef.current) return;
+    const trs = tbodyRef.current.querySelectorAll('tr');
+    gsap.fromTo(
+      trs,
+      { y: 16, opacity: 0 },
+      { y: 0, opacity: 1, duration: 0.35, stagger: 0.03, ease: 'power2.out', clearProps: 'transform,opacity' }
+    );
+  }, [table.getState().pagination.pageIndex, table.getState().pagination.pageSize]);
+
   return (
-    <div className="overflow-x-auto rounded-2xl border border-outline-variant/10 bg-surface-container-lowest">
+    <div className="overflow-x-auto rounded-2xl border border-white/60 bg-white/80 shadow-sm backdrop-blur-xl">
       <table className="w-full min-w-[900px] border-collapse text-left">
         <thead>
           {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id} className="bg-surface-container-low/50">
+            <tr key={headerGroup.id} className="border-b border-slate-100">
               {headerGroup.headers.map((header) => (
-                <th key={header.id} className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                <th key={header.id} className="px-5 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                   {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                 </th>
               ))}
             </tr>
           ))}
         </thead>
-        <tbody className="divide-y divide-outline-variant/5">
+        <tbody ref={tbodyRef} className="divide-y divide-slate-100">
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} className="transition-colors hover:bg-slate-50/50">
+            <tr key={row.id} className="transition-colors hover:bg-slate-50/70">
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-6 py-4 text-sm text-on-surface-variant">
+                <td key={cell.id} className="px-5 py-3.5 text-sm text-slate-600">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}
@@ -120,28 +132,28 @@ export function VehiclesDataTable({ rows }: VehiclesDataTableProps) {
         </tbody>
       </table>
 
-      <div className="flex flex-col gap-3 border-t border-outline-variant/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-on-surface-variant">
+      <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-3.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-slate-400">
           Mostrando {table.getRowModel().rows.length} de {rows.length} vehiculos
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            className="rounded-lg border border-outline-variant/30 bg-surface px-3 py-1.5 disabled:opacity-50"
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40"
             disabled={!table.getCanPreviousPage()}
             onClick={() => table.previousPage()}
           >
             Anterior
           </button>
           <button
-            className="rounded-lg border border-outline-variant/30 bg-surface px-3 py-1.5 disabled:opacity-50"
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40"
             disabled={!table.getCanNextPage()}
             onClick={() => table.nextPage()}
           >
             Siguiente
           </button>
 
-          <span className="px-2 text-on-surface-variant">
+          <span className="px-2 text-slate-400">
             Pagina {table.getState().pagination.pageIndex + 1} / {Math.max(table.getPageCount(), 1)}
           </span>
 

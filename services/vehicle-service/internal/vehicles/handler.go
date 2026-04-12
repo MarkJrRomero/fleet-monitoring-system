@@ -306,8 +306,17 @@ func (h *Handler) StartSimulation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "no hay vehiculos disponibles para simular")
 		return
 	}
+	if req.SelectedCount <= 0 {
+		req.SelectedCount = minInt(totalVehicles, 50)
+	}
+	if req.SelectedCount > totalVehicles {
+		req.SelectedCount = totalVehicles
+	}
+	if req.TickMS <= 0 {
+		req.TickMS = 1000
+	}
 
-	if err := h.simulator.Start(totalVehicles, 1000); err != nil {
+	if err := h.simulator.Start(req.SelectedCount, req.TickMS); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}

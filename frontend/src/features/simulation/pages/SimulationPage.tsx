@@ -43,6 +43,22 @@ type SimulationTraceResponse = {
   items: SimulationTraceItem[];
 };
 
+type SimulationProfileKey = 'soft' | 'medium' | 'high' | 'total';
+
+type SimulationProfile = {
+  key: SimulationProfileKey;
+  label: string;
+  ratio: number;
+  description: string;
+};
+
+const SIMULATION_PROFILES: SimulationProfile[] = [
+  { key: 'soft', label: 'Suave', ratio: 0.1, description: '10% de vehiculos activos' },
+  { key: 'medium', label: 'Media', ratio: 0.3, description: '30% de vehiculos activos' },
+  { key: 'high', label: 'Alta', ratio: 0.5, description: '50% de vehiculos activos' },
+  { key: 'total', label: 'Total', ratio: 1, description: '100% de vehiculos activos' }
+];
+
 const defaultSimulationStatus: SimulationStatus = {
   running: false,
   selected_count: 0,
@@ -67,6 +83,7 @@ export function SimulationPage() {
   const [lastCreateResult, setLastCreateResult] = useState<string>('');
   const [lastClearResult, setLastClearResult] = useState<string>('');
   const [traceItems, setTraceItems] = useState<SimulationTraceItem[]>([]);
+  const [simulationProfile, setSimulationProfile] = useState<SimulationProfileKey>('soft');
 
   const loadVehicles = async () => {
     setIsLoadingVehicles(true);
@@ -217,15 +234,21 @@ export function SimulationPage() {
             return;
           }
 
+          const selectedProfile = SIMULATION_PROFILES.find((profile) => profile.key === simulationProfile) ?? SIMULATION_PROFILES[0];
+          const selectedCount = Math.max(1, Math.round(vehicles.length * selectedProfile.ratio));
+
           const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
+            body: JSON.stringify({
+              selected_count: selectedCount,
+              tick_ms: Math.max(simulationStatus.tick_ms || 1000, 1400)
+            })
           });
           if (!response.ok) {
             throw new Error('No fue posible iniciar simulacion');
           }
-          await showSuccess('Simulacion iniciada', 'Se simularan todos los vehiculos disponibles con inyeccion de caos activa.');
+          await showSuccess('Simulacion iniciada', `Se simularan ${selectedCount} vehiculos con perfil ${selectedProfile.label.toLowerCase()}.`);
         }
 
         await loadSimulationStatus();
@@ -245,7 +268,19 @@ export function SimulationPage() {
     window.location.href = '/login';
   };
 
-  const activeVehicles = simulationStatus.running ? vehicles.length : 0;
+  const activeVehicles = simulationStatus.running ? simulationStatus.selected_count : 0;
+
+  const selectedProfile = useMemo(
+    () => SIMULATION_PROFILES.find((profile) => profile.key === simulationProfile) ?? SIMULATION_PROFILES[0],
+    [simulationProfile]
+  );
+
+  const selectedVehiclesPreview = useMemo(() => {
+    if (vehicles.length === 0) {
+      return 0;
+    }
+    return Math.max(1, Math.round(vehicles.length * selectedProfile.ratio));
+  }, [selectedProfile, vehicles.length]);
 
   const simulationRatio = useMemo(() => {
     if (vehicles.length <= 0) {
@@ -361,18 +396,6 @@ export function SimulationPage() {
             >
               Exportar Logs
             </button>
-            <button
-              className="rounded-xl bg-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-on-primary disabled:cursor-not-allowed disabled:opacity-65"
-              disabled={isSimulationSubmitting || (!simulationStatus.running && vehicles.length === 0)}
-              onClick={(event) => {
-                event.preventDefault();
-                const fake = { preventDefault: () => undefined } as FormEvent;
-                onSubmit(fake);
-              }}
-              type="button"
-            >
-              {simulationStatus.running ? 'Detener Simulacion' : 'Iniciar Simulacion'}
-            </button>
           </div>
         </div>
 
@@ -416,6 +439,29 @@ export function SimulationPage() {
               <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Configuracion</p>
               <div className="space-y-3">
                 <div>
+                  <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-400">
+                    <span>Perfil de simulacion</span>
+                    <span>{simulationStatus.running ? `${formatNumber(simulationStatus.selected_count)} activos` : `${formatNumber(selectedVehiclesPreview)} estimados`}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {SIMULATION_PROFILES.map((profile) => {
+                      const isActive = simulationProfile === profile.key;
+                      return (
+                        <button
+                          key={profile.key}
+                          className={`rounded-xl border px-3 py-2 text-left transition ${isActive ? 'border-teal-300 bg-teal-50 text-teal-700 shadow-sm' : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white'}`}
+                          disabled={simulationStatus.running}
+                          onClick={() => setSimulationProfile(profile.key)}
+                          type="button"
+                        >
+                          <p className="text-xs font-bold uppercase tracking-wide">{profile.label}</p>
+                          <p className="text-[10px] opacity-75">{profile.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
                   <div className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-400">
                     <span>Frecuencia de refresco</span>
                     <span>{simulationStatus.tick_ms || 1000}ms</span>
@@ -434,7 +480,19 @@ export function SimulationPage() {
                   </div>
                 </div>
               </div>
-              <p className="mt-3 text-[11px] text-slate-500">Activo: 10% duplicados y 5% payload invalido.</p>
+              <p className="mt-3 text-[11px] text-slate-500">Perfil actual: {selectedProfile.description}. Caos activo: 10% duplicados y 5% payload invalido.</p>
+              <button
+                className={`mt-4 w-full rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-65 ${simulationStatus.running ? 'border border-rose-300/80 bg-rose-50 text-rose-600 hover:bg-rose-100' : 'bg-primary text-on-primary hover:opacity-90'}`}
+                disabled={isSimulationSubmitting || (!simulationStatus.running && vehicles.length === 0)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  const fake = { preventDefault: () => undefined } as FormEvent;
+                  onSubmit(fake);
+                }}
+                type="button"
+              >
+                {simulationStatus.running ? 'Detener Simulacion' : 'Iniciar Simulacion'}
+              </button>
             </article>
           </aside>
 
