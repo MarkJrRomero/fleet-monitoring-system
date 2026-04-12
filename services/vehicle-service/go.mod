@@ -2,6 +2,10 @@ module fleet-monitoring-system/services/vehicle-service
 
 go 1.22
 
+require fleet-monitoring-system/services/common-auth v0.0.0
+
+replace fleet-monitoring-system/services/common-auth => ../common-auth
+
 require (
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/redis/go-redis/v9 v9.18.0

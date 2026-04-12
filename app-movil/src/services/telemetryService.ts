@@ -111,8 +111,11 @@ type WsHandlers<T> = {
   onError?: () => void;
 };
 
-function connectWs<T>(url: string, handlers: WsHandlers<T>): () => void {
-  const socket = new WebSocket(url);
+function connectWs<T>(url: string, accessToken: string | undefined, handlers: WsHandlers<T>): () => void {
+  const socketURL = accessToken
+    ? `${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(accessToken)}`
+    : url;
+  const socket = new WebSocket(socketURL);
 
   socket.onopen = () => handlers.onOpen?.();
   socket.onclose = () => handlers.onClose?.();
@@ -132,10 +135,10 @@ function connectWs<T>(url: string, handlers: WsHandlers<T>): () => void {
   };
 }
 
-export function connectPositions(handlers: WsHandlers<PositionEvent>): () => void {
-  return connectWs<PositionEvent>(POSITIONS_WS_URL, handlers);
+export function connectPositions(accessToken: string | undefined, handlers: WsHandlers<PositionEvent>): () => void {
+  return connectWs<PositionEvent>(POSITIONS_WS_URL, accessToken, handlers);
 }
 
-export function connectAlerts(handlers: WsHandlers<AlertEvent>): () => void {
-  return connectWs<AlertEvent>(ALERTS_WS_URL, handlers);
+export function connectAlerts(accessToken: string | undefined, handlers: WsHandlers<AlertEvent>): () => void {
+  return connectWs<AlertEvent>(ALERTS_WS_URL, accessToken, handlers);
 }

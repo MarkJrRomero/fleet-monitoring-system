@@ -28,6 +28,13 @@
       "serviceAccountsEnabled": true,
       "clientAuthenticatorType": "client-secret",
       "secret": "tu-secreto-muy-seguro"
+    },
+    {
+      "clientId": "fleet-service-auth",
+      "enabled": true,
+      "serviceAccountsEnabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "fleet-service-auth-secret"
     }
   ],
   "users": [

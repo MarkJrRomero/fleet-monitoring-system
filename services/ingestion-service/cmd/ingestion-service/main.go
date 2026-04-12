@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	auth "fleet-monitoring-system/services/common-auth"
 	"fleet-monitoring-system/services/ingestion-service/internal/ingestion"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,6 +60,18 @@ func main() {
 		ClickHouseBatchSize:     cfg.ClickHouseBatchSize,
 		ClickHouseFlushInterval: cfg.ClickHouseFlushInterval,
 	})
+	authMiddleware, err := auth.NewMiddleware(auth.Config{
+		ServiceName:     "ingestion-service",
+		KeycloakBaseURL: cfg.KeycloakBaseURL,
+		KeycloakHost:    cfg.KeycloakHost,
+		Realm:           cfg.KeycloakRealm,
+		ClientID:        cfg.KeycloakClientID,
+		ClientSecret:    cfg.KeycloakSecret,
+		ExemptPaths:     []string{"/health"},
+	})
+	if err != nil {
+		log.Fatalf("no se pudo configurar auth middleware: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.Health)
@@ -68,7 +81,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           withRequestID(withCORS(mux)),
+		Handler:           withRequestID(withCORS(authMiddleware.Wrap(mux))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -99,6 +112,7 @@ func withRequestID(next http.Handler) http.Handler {
 		if requestID == "" {
 			requestID = fmt.Sprintf("ing-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&requestCounter, 1))
 		}
+		r.Header.Set("X-Request-Id", requestID)
 		w.Header().Set("X-Request-Id", requestID)
 		next.ServeHTTP(w, r)
 	})
@@ -108,6 +122,11 @@ type config struct {
 	Port                    int
 	RedisAddr               string
 	PostgresDSN             string
+	KeycloakBaseURL         string
+	KeycloakHost            string
+	KeycloakRealm           string
+	KeycloakClientID        string
+	KeycloakSecret          string
 	RecentTTLSeconds        int
 	DedupeWindowSeconds     int
 	RedisPositionsChannel   string
@@ -154,6 +173,11 @@ func loadConfig() config {
 		Port:                    port,
 		RedisAddr:               redisAddr,
 		PostgresDSN:             postgresDSN,
+		KeycloakBaseURL:         envString("KEYCLOAK_BASE_URL", "http://host.docker.internal:8080"),
+		KeycloakHost:            envString("KEYCLOAK_HOST_HEADER", "localhost:8080"),
+		KeycloakRealm:           envString("KEYCLOAK_REALM", "fleet-monitoring"),
+		KeycloakClientID:        envString("KEYCLOAK_AUTH_CLIENT_ID", "ingestion-service"),
+		KeycloakSecret:          envString("KEYCLOAK_AUTH_CLIENT_SECRET", "tu-secreto-muy-seguro"),
 		RecentTTLSeconds:        envInt("INGESTION_RECENT_TTL_SECONDS", 60),
 		DedupeWindowSeconds:     envInt("INGESTION_DEDUPE_WINDOW_SECONDS", 15),
 		RedisPositionsChannel:   envString("REDIS_POSITIONS_CHANNEL", "gps:stream"),

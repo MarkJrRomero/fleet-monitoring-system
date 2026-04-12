@@ -129,7 +129,7 @@ export function AdminDashboardScreen() {
 	}, [session?.accessToken]);
 
 	useEffect(() => {
-		const disconnectPositions = connectPositions({
+		const disconnectPositions = connectPositions(session?.accessToken, {
 			onOpen: () => setPositionsSocketConnected(true),
 			onClose: () => setPositionsSocketConnected(false),
 			onError: () => setPositionsSocketConnected(false),
@@ -153,7 +153,7 @@ export function AdminDashboardScreen() {
 			}
 		});
 
-		const disconnectAlerts = connectAlerts({
+		const disconnectAlerts = connectAlerts(session?.accessToken, {
 			onOpen: () => setAlertsSocketConnected(true),
 			onClose: () => setAlertsSocketConnected(false),
 			onError: () => setAlertsSocketConnected(false),
@@ -175,7 +175,7 @@ export function AdminDashboardScreen() {
 			disconnectPositions();
 			disconnectAlerts();
 		};
-	}, []);
+	}, [session?.accessToken]);
 
 	const mappableVehicles = useMemo(
 		() => vehicles.filter(hasValidCoordinate),

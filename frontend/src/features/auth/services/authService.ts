@@ -69,6 +69,42 @@ export function getRefreshToken() {
   return localStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
+export async function fetchWithAuth(input: RequestInfo | URL, init: RequestInit = {}) {
+  const hasSession = await ensureSession();
+  if (!hasSession) {
+    throw new Error('La sesion expiro. Inicia sesion nuevamente.');
+  }
+
+  const token = getAccessToken();
+  if (!token) {
+    throw new Error('No hay un token de acceso disponible.');
+  }
+
+  const headers = new Headers(init.headers ?? {});
+  headers.set('Authorization', `Bearer ${token}`);
+
+  return fetch(input, {
+    ...init,
+    headers
+  });
+}
+
+export async function buildAuthorizedWebSocketUrl(url: string) {
+  const hasSession = await ensureSession();
+  if (!hasSession) {
+    throw new Error('La sesion expiro. Inicia sesion nuevamente.');
+  }
+
+  const token = getAccessToken();
+  if (!token) {
+    throw new Error('No hay un token de acceso disponible.');
+  }
+
+  const resolved = new URL(url, window.location.origin);
+  resolved.searchParams.set('access_token', token);
+  return resolved.toString();
+}
+
 export function isAuthenticated() {
   const token = getAccessToken();
 

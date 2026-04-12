@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	auth "fleet-monitoring-system/services/common-auth"
 	"fleet-monitoring-system/services/websocket-service/internal/ws"
 
 	"github.com/gorilla/websocket"
@@ -21,10 +22,15 @@ import (
 )
 
 type config struct {
-	Port          int
-	RedisAddr     string
-	RedisChannel  string
-	AlertsChannel string
+	Port             int
+	RedisAddr        string
+	RedisChannel     string
+	AlertsChannel    string
+	KeycloakBaseURL  string
+	KeycloakHost     string
+	KeycloakRealm    string
+	KeycloakClientID string
+	KeycloakSecret   string
 }
 
 type apiErrorEnvelope struct {
@@ -61,6 +67,19 @@ func main() {
 	alertsHub := ws.NewHub()
 	go positionsHub.SubscribeRedis(ctx, redisClient, cfg.RedisChannel)
 	go alertsHub.SubscribeRedis(ctx, redisClient, cfg.AlertsChannel)
+	authMiddleware, err := auth.NewMiddleware(auth.Config{
+		ServiceName:      "websocket-service",
+		KeycloakBaseURL:  cfg.KeycloakBaseURL,
+		KeycloakHost:     cfg.KeycloakHost,
+		Realm:            cfg.KeycloakRealm,
+		ClientID:         cfg.KeycloakClientID,
+		ClientSecret:     cfg.KeycloakSecret,
+		ExemptPaths:      []string{"/health"},
+		AllowedTokenKeys: []string{"access_token"},
+	})
+	if err != nil {
+		log.Fatalf("no se pudo configurar auth middleware: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -103,7 +122,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           withRequestID(mux),
+		Handler:           withRequestID(authMiddleware.Wrap(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -133,6 +152,7 @@ func withRequestID(next http.Handler) http.Handler {
 		if requestID == "" {
 			requestID = fmt.Sprintf("ws-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&requestCounter, 1))
 		}
+		r.Header.Set("X-Request-Id", requestID)
 		w.Header().Set("X-Request-Id", requestID)
 		next.ServeHTTP(w, r)
 	})
@@ -169,10 +189,15 @@ func loadConfig() config {
 	}
 
 	return config{
-		Port:          port,
-		RedisAddr:     redisAddr,
-		RedisChannel:  envString("REDIS_POSITIONS_CHANNEL", "gps:stream"),
-		AlertsChannel: envString("REDIS_ALERTS_CHANNEL", "alerts:stream"),
+		Port:             port,
+		RedisAddr:        redisAddr,
+		RedisChannel:     envString("REDIS_POSITIONS_CHANNEL", "gps:stream"),
+		AlertsChannel:    envString("REDIS_ALERTS_CHANNEL", "alerts:stream"),
+		KeycloakBaseURL:  envString("KEYCLOAK_BASE_URL", "http://host.docker.internal:8080"),
+		KeycloakHost:     envString("KEYCLOAK_HOST_HEADER", "localhost:8080"),
+		KeycloakRealm:    envString("KEYCLOAK_REALM", "fleet-monitoring"),
+		KeycloakClientID: envString("KEYCLOAK_AUTH_CLIENT_ID", "ingestion-service"),
+		KeycloakSecret:   envString("KEYCLOAK_AUTH_CLIENT_SECRET", "tu-secreto-muy-seguro"),
 	}
 }
 

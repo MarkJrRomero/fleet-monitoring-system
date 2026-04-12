@@ -33,6 +33,13 @@ export function AppShell({
   children
 }: AppShellProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     if (typeof window === 'undefined') {
       return false;
@@ -50,6 +57,30 @@ export function AppShell({
   const headerElRef = useRef<HTMLElement | null>(null);
   const mainElRef = useRef<HTMLElement | null>(null);
   const isFirstSidebarAnimRef = useRef(true);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (event: MediaQueryListEvent) => {
+      setIsDesktop(event.matches);
+      if (!event.matches) {
+        setIsMobileSidebarOpen(false);
+      }
+    };
+
+    setIsDesktop(mq.matches);
+
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
+
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
+  }, []);
 
   useEffect(() => {
     const onDocumentClick = (event: MouseEvent) => {
@@ -105,14 +136,18 @@ export function AppShell({
     const mainEl = mainElRef.current;
     if (!sidebar || !headerEl || !mainEl) return;
 
-    const mq = window.matchMedia('(min-width: 1024px)');
-    if (!mq.matches) {
+    const labels = sidebar.querySelectorAll<HTMLElement>('.sidebar-label');
+
+    if (!isDesktop) {
+      gsap.set(sidebar, { clearProps: 'width' });
+      gsap.set(headerEl, { clearProps: 'left,width' });
+      gsap.set(mainEl, { clearProps: 'marginLeft' });
+      gsap.set(labels, { clearProps: 'opacity' });
       isFirstSidebarAnimRef.current = false;
       return;
     }
 
     const targetW = isSidebarCollapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W_EXPANDED;
-    const labels = sidebar.querySelectorAll<HTMLElement>('.sidebar-label');
 
     if (isFirstSidebarAnimRef.current) {
       isFirstSidebarAnimRef.current = false;
@@ -135,7 +170,7 @@ export function AppShell({
     } else {
       gsap.to(labels, { opacity: 1, duration: 0.22, delay: 0.26, ease: 'power2.out' });
     }
-  }, [isSidebarCollapsed]);
+  }, [isDesktop, isSidebarCollapsed]);
 
   const initial = username?.trim()?.charAt(0)?.toUpperCase() || 'U';
   const desktopSidebarClass = isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72';
@@ -225,7 +260,7 @@ export function AppShell({
           >
             <Menu className="h-4 w-4" />
           </button>
-          <h1 className="font-headline text-lg font-extrabold tracking-tight text-slate-800 sm:text-xl">{title}</h1>
+          <h1 className="hidden font-headline text-lg font-extrabold tracking-tight text-slate-800 sm:block sm:text-xl">{title}</h1>
         </div>
         <div className="flex items-center gap-3 text-sm text-slate-500">
           <div className="hidden sm:block">{headerRight}</div>

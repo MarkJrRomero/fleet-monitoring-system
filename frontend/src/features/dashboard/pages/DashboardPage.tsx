@@ -7,7 +7,7 @@ import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'leaflet/dist/leaflet.css';
 import 'react-leaflet-cluster/dist/assets/MarkerCluster.css';
 import 'react-leaflet-cluster/dist/assets/MarkerCluster.Default.css';
-import { clearSession, getUsername } from '../../auth/services/authService';
+import { buildAuthorizedWebSocketUrl, clearSession, fetchWithAuth, getUsername } from '../../auth/services/authService';
 import { POSITIONS_WS_URL, VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { getMainNavItems } from '../../../shared/config/navItems';
 import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
@@ -387,7 +387,7 @@ export function DashboardPage() {
 
   const loadVehiclesCatalog = async () => {
     try {
-      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
       if (!response.ok) {
         throw await parseApiError(response, 'No fue posible consultar vehiculos');
       }
@@ -413,23 +413,40 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const ws = new WebSocket(POSITIONS_WS_URL);
+    let isActive = true;
+    let ws: WebSocket | null = null;
 
-    ws.onopen = () => {};
-    ws.onerror = () => {};
-    ws.onclose = () => {};
-
-    ws.onmessage = (event) => {
+    const connect = async () => {
       try {
-        const payload = JSON.parse(event.data) as PositionEvent;
-        setEvents((prev) => [payload, ...prev].slice(0, 300));
+        const wsURL = await buildAuthorizedWebSocketUrl(POSITIONS_WS_URL);
+        if (!isActive) {
+          return;
+        }
+
+        ws = new WebSocket(wsURL);
+
+        ws.onopen = () => {};
+        ws.onerror = () => {};
+        ws.onclose = () => {};
+
+        ws.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data) as PositionEvent;
+            setEvents((prev) => [payload, ...prev].slice(0, 300));
+          } catch {
+            // noop
+          }
+        };
       } catch {
         // noop
       }
     };
 
+    void connect();
+
     return () => {
-      ws.close();
+	  isActive = false;
+	  ws?.close();
     };
   }, []);
 
@@ -729,9 +746,9 @@ export function DashboardPage() {
       }
       onLogout={onLogout}
     >
-      <section className="overflow-visible xl:h-[calc(100vh-110px)] xl:overflow-hidden">
-        <div className="grid min-h-0 grid-cols-1 gap-4 xl:h-full xl:grid-cols-12">
-          <div className="min-h-0 xl:col-span-5 xl:h-full">
+      <section className="h-[calc(100dvh-6rem)] overflow-hidden sm:h-[calc(100dvh-7rem)] xl:h-[calc(100vh-110px)]">
+        <div className="grid h-full min-h-0 grid-cols-1 grid-rows-2 gap-4 xl:grid-cols-12 xl:grid-rows-1">
+          <div className="order-2 min-h-0 xl:order-1 xl:col-span-5 xl:h-full">
             <article className="flex h-full min-h-0 max-h-full flex-col rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="font-headline text-xl font-bold text-slate-800">Alertas activas</h2>
@@ -743,15 +760,19 @@ export function DashboardPage() {
                 </div>
               ) : null}
 
-              <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <StyledSelect options={STATUS_PRIORITY_OPTIONS} value={statusPriority} onChange={setStatusPriority} />
+              <div className="mb-3 grid grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-2">
+                <div className="min-w-0">
+                  <StyledSelect options={STATUS_PRIORITY_OPTIONS} value={statusPriority} onChange={setStatusPriority} />
+                </div>
 
-                <input
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-200/50"
-                  placeholder="Buscar por placa o IMEI"
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                />
+                <div className="min-w-0">
+                  <input
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-200/50"
+                    placeholder="Buscar por placa o IMEI"
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                  />
+                </div>
               </div>
 
               <div ref={alertsContainerRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" onScroll={onAlertsScroll}>
@@ -769,8 +790,8 @@ export function DashboardPage() {
             </article>
           </div>
 
-          <article className="relative min-h-0 rounded-2xl border border-white/60 bg-white/80 p-3 shadow-sm backdrop-blur-xl xl:col-span-7 xl:h-full">
-            <div className="relative h-[52vh] min-h-[320px] overflow-hidden rounded-xl border border-slate-100 sm:h-[420px] xl:h-full">
+          <article className="order-1 relative min-h-0 rounded-2xl border border-white/60 bg-white/80 p-3 shadow-sm backdrop-blur-xl xl:order-2 xl:col-span-7 xl:h-full">
+            <div className="relative h-full min-h-0 overflow-hidden rounded-xl border border-slate-100 xl:h-full">
               <MapContainer center={mapCenter} className="h-full w-full" scrollWheelZoom zoom={12}>
                 <FocusMapOnVehicle target={focusedPosition} />
                 <TileLayer

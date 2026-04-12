@@ -134,10 +134,15 @@ services:
   ingestion-service:
     container_name: fleet-ingestion-service
     build:
-      context: ../services/ingestion-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/ingestion-service/Dockerfile
     environment:
       INGESTION_SERVICE_PORT: ${INGESTION_SERVICE_PORT}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL}
+      KEYCLOAK_HOST_HEADER: ${KEYCLOAK_HOST_HEADER}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_AUTH_CLIENT_ID: ${KEYCLOAK_AUTH_CLIENT_ID}
+      KEYCLOAK_AUTH_CLIENT_SECRET: ${KEYCLOAK_AUTH_CLIENT_SECRET}
       INGESTION_RECENT_TTL_SECONDS: ${INGESTION_RECENT_TTL_SECONDS}
       INGESTION_DEDUPE_WINDOW_SECONDS: ${INGESTION_DEDUPE_WINDOW_SECONDS}
       NOMINATIM_REVERSE_URL: ${NOMINATIM_REVERSE_URL}
@@ -173,10 +178,15 @@ services:
   websocket-service:
     container_name: fleet-websocket-service
     build:
-      context: ../services/websocket-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/websocket-service/Dockerfile
     environment:
       WEBSOCKET_SERVICE_PORT: ${WEBSOCKET_SERVICE_PORT}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL}
+      KEYCLOAK_HOST_HEADER: ${KEYCLOAK_HOST_HEADER}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_AUTH_CLIENT_ID: ${KEYCLOAK_AUTH_CLIENT_ID}
+      KEYCLOAK_AUTH_CLIENT_SECRET: ${KEYCLOAK_AUTH_CLIENT_SECRET}
       REDIS_URL: ${REDIS_URL}
       REDIS_POSITIONS_CHANNEL: ${REDIS_POSITIONS_CHANNEL}
       REDIS_ALERTS_CHANNEL: ${REDIS_ALERTS_CHANNEL}
@@ -189,10 +199,15 @@ services:
   vehicle-service:
     container_name: fleet-vehicle-service
     build:
-      context: ../services/vehicle-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/vehicle-service/Dockerfile
     environment:
       VEHICLE_SERVICE_PORT: ${VEHICLE_SERVICE_PORT}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL}
+      KEYCLOAK_HOST_HEADER: ${KEYCLOAK_HOST_HEADER}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_AUTH_CLIENT_ID: ${KEYCLOAK_AUTH_CLIENT_ID}
+      KEYCLOAK_AUTH_CLIENT_SECRET: ${KEYCLOAK_AUTH_CLIENT_SECRET}
       INGESTION_BASE_URL: ${INGESTION_BASE_URL}
       REDIS_URL: ${REDIS_URL}
       POSTGRES_HOST: ${POSTGRES_HOST}

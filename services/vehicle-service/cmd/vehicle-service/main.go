@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	auth "fleet-monitoring-system/services/common-auth"
 	"fleet-monitoring-system/services/vehicle-service/internal/vehicles"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,6 +25,11 @@ type config struct {
 	PostgresDSN      string
 	IngestionBaseURL string
 	RedisAddr        string
+	KeycloakBaseURL  string
+	KeycloakHost     string
+	KeycloakRealm    string
+	KeycloakClientID string
+	KeycloakSecret   string
 }
 
 var requestCounter uint64
@@ -48,8 +54,26 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	sim := vehicles.NewSimulator(db, cfg.IngestionBaseURL)
-	driverSim := vehicles.NewFixedVehicleSimulator(db, cfg.IngestionBaseURL, vehicles.DefaultDriverVehicleID)
+	authCfg := auth.Config{
+		ServiceName:     "vehicle-service",
+		KeycloakBaseURL: cfg.KeycloakBaseURL,
+		KeycloakHost:    cfg.KeycloakHost,
+		Realm:           cfg.KeycloakRealm,
+		ClientID:        cfg.KeycloakClientID,
+		ClientSecret:    cfg.KeycloakSecret,
+		ExemptPaths:     []string{"/health"},
+	}
+	authMiddleware, err := auth.NewMiddleware(authCfg)
+	if err != nil {
+		log.Fatalf("no se pudo configurar auth middleware: %v", err)
+	}
+	serviceTokenProvider, err := auth.NewServiceTokenProvider(authCfg)
+	if err != nil {
+		log.Fatalf("no se pudo configurar token provider: %v", err)
+	}
+
+	sim := vehicles.NewSimulator(db, cfg.IngestionBaseURL, serviceTokenProvider)
+	driverSim := vehicles.NewFixedVehicleSimulator(db, cfg.IngestionBaseURL, vehicles.DefaultDriverVehicleID, serviceTokenProvider)
 	h := vehicles.NewHandlerWithCache(db, sim, driverSim, redisClient)
 
 	workerCtx, stopWorker := context.WithCancel(context.Background())
@@ -75,7 +99,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           withRequestID(withCORS(mux)),
+		Handler:           withRequestID(withCORS(authMiddleware.Wrap(mux))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -104,6 +128,7 @@ func withRequestID(next http.Handler) http.Handler {
 		if requestID == "" {
 			requestID = fmt.Sprintf("veh-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&requestCounter, 1))
 		}
+		r.Header.Set("X-Request-Id", requestID)
 		w.Header().Set("X-Request-Id", requestID)
 		next.ServeHTTP(w, r)
 	})
@@ -148,7 +173,17 @@ func loadConfig() config {
 		sslMode,
 	)
 
-	return config{Port: port, PostgresDSN: postgresDSN, IngestionBaseURL: ingestionBaseURL, RedisAddr: redisAddr}
+	return config{
+		Port:             port,
+		PostgresDSN:      postgresDSN,
+		IngestionBaseURL: ingestionBaseURL,
+		RedisAddr:        redisAddr,
+		KeycloakBaseURL:  envString("KEYCLOAK_BASE_URL", "http://host.docker.internal:8080"),
+		KeycloakHost:     envString("KEYCLOAK_HOST_HEADER", "localhost:8080"),
+		KeycloakRealm:    envString("KEYCLOAK_REALM", "fleet-monitoring"),
+		KeycloakClientID: envString("KEYCLOAK_AUTH_CLIENT_ID", "ingestion-service"),
+		KeycloakSecret:   envString("KEYCLOAK_AUTH_CLIENT_SECRET", "tu-secreto-muy-seguro"),
+	}
 }
 
 func envString(key, fallback string) string {

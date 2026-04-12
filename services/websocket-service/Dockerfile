@@ -2,10 +2,14 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod ./
+COPY services/common-auth /app/services/common-auth
+COPY services/websocket-service /app/services/websocket-service
+
+WORKDIR /app/services/websocket-service
+
+COPY services/websocket-service/go.mod ./
 RUN go mod download
 
-COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /bin/websocket-service ./cmd/websocket-service
 
 FROM alpine:3.20

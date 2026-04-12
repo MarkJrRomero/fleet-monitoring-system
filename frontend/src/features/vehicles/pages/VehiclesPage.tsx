@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Car, RefreshCw, Trash2 } from 'lucide-react';
-import { clearSession, getUsername } from '../../auth/services/authService';
+import { clearSession, fetchWithAuth, getUsername } from '../../auth/services/authService';
 import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../../dashboard/utils/vehicleStatus';
 import { getMainNavItems } from '../../../shared/config/navItems';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { formatApiError, parseApiError } from '../../../shared/api/http';
 import { StatusBadge } from '../../../shared/components/StatusBadge';
+import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
 import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { AppShell } from '../../../shared/layouts/AppShell';
 import { confirmAction, showError, showSuccess } from '../../../shared/ui/alerts';
@@ -26,6 +27,8 @@ type VehiclesResponse = {
 
 type DeleteScope = 'vehicle_only' | 'with_history';
 
+const STATUS_FILTER_ALL = 'all';
+
 export function VehiclesPage() {
   usePageSeo({
     title: 'SMTF | Vehiculos',
@@ -38,11 +41,13 @@ export function VehiclesPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [deletingVehicleIDs, setDeletingVehicleIDs] = useState<Record<string, boolean>>({});
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState(STATUS_FILTER_ALL);
 
   const loadVehicles = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
       if (!response.ok) {
         throw await parseApiError(response, 'No fue posible cargar vehiculos');
       }
@@ -64,12 +69,39 @@ export function VehiclesPage() {
     [vehicles]
   );
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(sortedVehicles.length / pageSize)), [sortedVehicles.length]);
+  const statusOptions = useMemo<SelectOption[]>(() => {
+    const uniqueStatuses = [...new Set(vehicles.map((vehicle) => vehicle.status).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+    return [
+      { value: STATUS_FILTER_ALL, label: 'Estado: Todos' },
+      ...uniqueStatuses.map((status) => ({
+        value: status,
+        label: `Estado: ${getVehicleStatusLabel(status)}`
+      }))
+    ];
+  }, [vehicles]);
+
+  const filteredVehicles = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    return sortedVehicles.filter((vehicle) => {
+      const matchesSearch =
+        query.length === 0 ||
+        vehicle.vehicle_id.toLowerCase().includes(query) ||
+        (vehicle.imei || '').toLowerCase().includes(query);
+
+      const matchesStatus = statusFilter === STATUS_FILTER_ALL || vehicle.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [searchTerm, sortedVehicles, statusFilter]);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredVehicles.length / pageSize)), [filteredVehicles.length]);
 
   const paginatedVehicles = useMemo(() => {
     const start = pageIndex * pageSize;
-    return sortedVehicles.slice(start, start + pageSize);
-  }, [sortedVehicles, pageIndex]);
+    return filteredVehicles.slice(start, start + pageSize);
+  }, [filteredVehicles, pageIndex]);
 
   useEffect(() => {
     setPageIndex((prev) => Math.min(prev, totalPages - 1));
@@ -95,7 +127,7 @@ export function VehiclesPage() {
 
     setDeletingVehicleIDs((prev) => ({ ...prev, [vehicleID]: true }));
     try {
-      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles/${vehicleID}?scope=${scope}`, {
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/vehicles/${vehicleID}?scope=${scope}`, {
         method: 'DELETE'
       });
 
@@ -157,6 +189,32 @@ export function VehiclesPage() {
             </div>
           </div>
 
+          <div className="mb-4 grid grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="min-w-0">
+              <input
+                className="w-full rounded-xl border border-outline-variant/30 bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+                placeholder="Buscar por ID o IMEI"
+                value={searchTerm}
+                onChange={(event) => {
+                  setSearchTerm(event.target.value);
+                  setPageIndex(0);
+                }}
+              />
+            </div>
+
+            <div className="min-w-0">
+              <StyledSelect
+                options={statusOptions}
+                value={statusFilter}
+                onChange={(value) => {
+                  setStatusFilter(value);
+                  setPageIndex(0);
+                }}
+                isSearchable={false}
+              />
+            </div>
+          </div>
+
           <div className="overflow-x-auto rounded-xl border border-outline-variant/20">
             <table className="w-full min-w-[760px] text-left">
               <thead className="bg-surface-container-low">
@@ -211,10 +269,10 @@ export function VehiclesPage() {
                     </td>
                   </tr>
                 ))}
-                {sortedVehicles.length === 0 ? (
+                {filteredVehicles.length === 0 ? (
                   <tr>
                     <td className="px-4 py-8 text-center text-sm text-on-surface-variant" colSpan={7}>
-                      Sin vehiculos registrados. Puedes crear uno desde el boton Crear individual.
+                      No hay vehiculos que coincidan con los filtros actuales.
                     </td>
                   </tr>
                 ) : null}
@@ -224,7 +282,7 @@ export function VehiclesPage() {
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-on-surface-variant">
             <span>
-              Mostrando {sortedVehicles.length === 0 ? 0 : pageIndex * pageSize + 1} - {Math.min((pageIndex + 1) * pageSize, sortedVehicles.length)} de {sortedVehicles.length}
+              Mostrando {filteredVehicles.length === 0 ? 0 : pageIndex * pageSize + 1} - {Math.min((pageIndex + 1) * pageSize, filteredVehicles.length)} de {filteredVehicles.length}
             </span>
             <div className="flex items-center gap-2">
               <button

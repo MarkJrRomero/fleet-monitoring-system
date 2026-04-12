@@ -176,7 +176,7 @@ export function TelemetryScreen() {
   }, [session?.accessToken]);
 
   useEffect(() => {
-    const disconnectPositions = connectPositions({
+    const disconnectPositions = connectPositions(session?.accessToken, {
       onOpen: () => setPositionsSocketConnected(true),
       onClose: () => setPositionsSocketConnected(false),
       onError: () => setPositionsSocketConnected(false),
@@ -208,7 +208,7 @@ export function TelemetryScreen() {
       }
     });
 
-    const disconnectAlerts = connectAlerts({
+    const disconnectAlerts = connectAlerts(session?.accessToken, {
       onOpen: () => setAlertsSocketConnected(true),
       onClose: () => setAlertsSocketConnected(false),
       onError: () => setAlertsSocketConnected(false),
@@ -222,7 +222,7 @@ export function TelemetryScreen() {
       disconnectPositions();
       disconnectAlerts();
     };
-  }, [trackedVehicleId]);
+  }, [session?.accessToken, trackedVehicleId]);
 
   useEffect(() => {
     mapRef.current?.animateToRegion(toRegion(currentCoords.lat, currentCoords.lng), 450);

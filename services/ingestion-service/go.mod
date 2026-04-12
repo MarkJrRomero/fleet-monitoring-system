@@ -2,6 +2,10 @@ module fleet-monitoring-system/services/ingestion-service
 
 go 1.22
 
+require fleet-monitoring-system/services/common-auth v0.0.0
+
+replace fleet-monitoring-system/services/common-auth => ../common-auth
+
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.30.0
 	github.com/jackc/pgx/v5 v5.6.0

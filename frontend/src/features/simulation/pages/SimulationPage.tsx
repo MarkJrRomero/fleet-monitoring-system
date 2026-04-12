@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, Database, Radio, Send, Timer } from 'lucide-react';
-import { clearSession, getUsername } from '../../auth/services/authService';
+import { clearSession, fetchWithAuth, getUsername } from '../../auth/services/authService';
 import { getMainNavItems } from '../../../shared/config/navItems';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
 import { formatApiError, parseApiError } from '../../../shared/api/http';
@@ -89,7 +89,7 @@ export function SimulationPage() {
   const loadVehicles = async () => {
     setIsLoadingVehicles(true);
     try {
-      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
       if (!response.ok) {
   		throw await parseApiError(response, 'No fue posible consultar los vehiculos');
       }
@@ -108,7 +108,7 @@ export function SimulationPage() {
 
   const loadSimulationStatus = async () => {
     try {
-      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/status`);
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/simulation/status`);
       if (!response.ok) {
   		throw await parseApiError(response, 'No fue posible consultar estado de simulacion');
       }
@@ -122,7 +122,7 @@ export function SimulationPage() {
 
   const loadSimulationTrace = async () => {
     try {
-      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/trace`);
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/simulation/trace`);
       if (!response.ok) {
   		throw await parseApiError(response, 'No fue posible consultar trazas de simulacion');
       }
@@ -152,7 +152,7 @@ export function SimulationPage() {
     setLastCreateResult('');
 
     try {
-      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles/bulk`, {
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/vehicles/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: 200 })
@@ -189,7 +189,7 @@ export function SimulationPage() {
     setLastClearResult('');
 
     try {
-      const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/admin/clear-db`, {
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/admin/clear-db`, {
         method: 'POST'
       });
 
@@ -222,7 +222,7 @@ export function SimulationPage() {
       setIsSimulationSubmitting(true);
       try {
         if (simulationStatus.running) {
-          const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/stop`, {
+          const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/simulation/stop`, {
             method: 'POST'
           });
           if (!response.ok) {
@@ -238,7 +238,7 @@ export function SimulationPage() {
           const selectedProfile = SIMULATION_PROFILES.find((profile) => profile.key === simulationProfile) ?? SIMULATION_PROFILES[0];
           const selectedCount = Math.max(1, Math.round(vehicles.length * selectedProfile.ratio));
 
-          const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/start`, {
+          const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/simulation/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -42,6 +42,7 @@ type simulator struct {
 	ingestionBaseURL string
 	client           *http.Client
 	fixedVehicleID   string
+	tokenProvider    bearerTokenProvider
 
 	mu             sync.RWMutex
 	running        bool
@@ -96,10 +97,15 @@ type ingestionGPSPayload struct {
 	Timestamp   string  `json:"timestamp"`
 }
 
-func NewSimulator(db *pgxpool.Pool, ingestionBaseURL string) *simulator {
+type bearerTokenProvider interface {
+	AccessToken(ctx context.Context) (string, error)
+}
+
+func NewSimulator(db *pgxpool.Pool, ingestionBaseURL string, tokenProvider bearerTokenProvider) *simulator {
 	return &simulator{
 		db:               db,
 		ingestionBaseURL: strings.TrimRight(ingestionBaseURL, "/"),
+		tokenProvider:    tokenProvider,
 		client: &http.Client{
 			Timeout: 8 * time.Second,
 		},
@@ -108,8 +114,8 @@ func NewSimulator(db *pgxpool.Pool, ingestionBaseURL string) *simulator {
 	}
 }
 
-func NewFixedVehicleSimulator(db *pgxpool.Pool, ingestionBaseURL, vehicleID string) *simulator {
-	sim := NewSimulator(db, ingestionBaseURL)
+func NewFixedVehicleSimulator(db *pgxpool.Pool, ingestionBaseURL, vehicleID string, tokenProvider bearerTokenProvider) *simulator {
+	sim := NewSimulator(db, ingestionBaseURL, tokenProvider)
 	sim.fixedVehicleID = strings.ToUpper(strings.TrimSpace(vehicleID))
 	return sim
 }
@@ -698,6 +704,13 @@ func (s *simulator) postIngestion(ctx context.Context, body []byte) (int, string
 		return 0, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if s.tokenProvider != nil {
+		token, err := s.tokenProvider.AccessToken(ctx)
+		if err != nil {
+			return 0, "", err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
