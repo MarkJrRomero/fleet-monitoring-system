@@ -11,6 +11,7 @@ KEYCLOAK_REALM_FILE := $(ROOT_DIR)/.docker/keycloak/realm-export.json
 ENV_FILE := $(ROOT_DIR)/.env
 ENV_TEMPLATE := $(ROOT_DIR)/.env.example
 COMPOSE_ARGS := --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)"
+DOWN_ARGS ?=
 SERVICE ?= all
 
 COMPOSE_CMD := $(shell \
@@ -30,8 +31,8 @@ endef
 
 .PHONY: help doctor \
 	frontend-install frontend-dev frontend-build frontend-preview \
-	compose-config compose-build compose-up compose-down compose-stop compose-restart compose-ps compose-logs compose-pull \
-	deploy undeploy up down stop restart ps logs build pull env-init
+	compose-config compose-build compose-up compose-down compose-delete compose-stop compose-restart compose-ps compose-logs compose-pull \
+	deploy undeploy up down delete stop restart ps logs build pull env-init
 
 help: ## Lista los comandos disponibles
 	@echo ""
@@ -95,7 +96,12 @@ compose-up: ## Despliega servicios en segundo plano (build incluido)
 compose-down: ## Elimina servicios, redes y recursos de compose
 	$(call REQUIRE_CMD,docker)
 	$(call REQUIRE_COMPOSE)
-	@$(COMPOSE_CMD) $(COMPOSE_ARGS) down
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) down $(DOWN_ARGS)
+
+compose-delete: ## Elimina stack completo: servicios, redes, volumenes e imagenes locales
+	$(call REQUIRE_CMD,docker)
+	$(call REQUIRE_COMPOSE)
+	@$(COMPOSE_CMD) $(COMPOSE_ARGS) down --volumes --remove-orphans --rmi local
 
 compose-stop: ## Detiene servicios sin eliminarlos
 	$(call REQUIRE_CMD,docker)
@@ -138,6 +144,8 @@ undeploy: compose-down ## Flujo recomendado para bajar despliegue
 up: deploy ## Sube todo el stack (hoy: frontend)
 
 down: undeploy ## Baja todo el stack
+
+delete: compose-delete ## Baja y borra todo (incluye volumenes e imagenes locales)
 
 stop: compose-stop ## Detiene todo el stack sin eliminar recursos
 

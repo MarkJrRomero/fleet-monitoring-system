@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,6 +25,8 @@ type config struct {
 	IngestionBaseURL string
 	RedisAddr        string
 }
+
+var requestCounter uint64
 
 func main() {
 	cfg := loadConfig()
@@ -46,7 +49,8 @@ func main() {
 	defer redisClient.Close()
 
 	sim := vehicles.NewSimulator(db, cfg.IngestionBaseURL)
-	h := vehicles.NewHandlerWithCache(db, sim, redisClient)
+	driverSim := vehicles.NewFixedVehicleSimulator(db, cfg.IngestionBaseURL, vehicles.DefaultDriverVehicleID)
+	h := vehicles.NewHandlerWithCache(db, sim, driverSim, redisClient)
 
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	defer stopWorker()
@@ -64,11 +68,14 @@ func main() {
 	mux.HandleFunc("GET /api/v1/simulation/trace", h.GetSimulationTrace)
 	mux.HandleFunc("POST /api/v1/simulation/start", h.StartSimulation)
 	mux.HandleFunc("POST /api/v1/simulation/stop", h.StopSimulation)
+	mux.HandleFunc("GET /api/v1/driver-simulation/status", h.GetDriverSimulationStatus)
+	mux.HandleFunc("POST /api/v1/driver-simulation/start", h.StartDriverSimulation)
+	mux.HandleFunc("POST /api/v1/driver-simulation/stop", h.StopDriverSimulation)
 	mux.HandleFunc("POST /api/v1/admin/clear-db", h.ClearDatabase)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           withCORS(mux),
+		Handler:           withRequestID(withCORS(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -89,6 +96,17 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown con error: %v", err)
 	}
+}
+
+func withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := strings.TrimSpace(r.Header.Get("X-Request-Id"))
+		if requestID == "" {
+			requestID = fmt.Sprintf("veh-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&requestCounter, 1))
+		}
+		w.Header().Set("X-Request-Id", requestID)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func withCORS(next http.Handler) http.Handler {

@@ -155,6 +155,12 @@ export async function loginViaApi(username: string, password: string) {
 
   const data = (await response.json()) as TokenResponse;
   saveTokens(data);
+
+  if (!hasRealmRole('admin')) {
+    clearSession();
+    throw new Error('Solo los administradores pueden ingresar al panel web');
+  }
+
   return data;
 }
 

@@ -41,6 +41,7 @@ type simulator struct {
 	db               *pgxpool.Pool
 	ingestionBaseURL string
 	client           *http.Client
+	fixedVehicleID   string
 
 	mu             sync.RWMutex
 	running        bool
@@ -107,7 +108,16 @@ func NewSimulator(db *pgxpool.Pool, ingestionBaseURL string) *simulator {
 	}
 }
 
+func NewFixedVehicleSimulator(db *pgxpool.Pool, ingestionBaseURL, vehicleID string) *simulator {
+	sim := NewSimulator(db, ingestionBaseURL)
+	sim.fixedVehicleID = strings.ToUpper(strings.TrimSpace(vehicleID))
+	return sim
+}
+
 func (s *simulator) Start(selectedCount, tickMS int) error {
+	if s.fixedVehicleID != "" {
+		selectedCount = 1
+	}
 	if selectedCount <= 0 {
 		return errors.New("selected_count debe ser mayor a 0")
 	}
@@ -589,9 +599,36 @@ func (s *simulator) nextStatus(vehicleID string, speedKmh float64, now time.Time
 }
 
 func (s *simulator) loadVehicles(ctx context.Context, limit int) ([]simulationVehicle, error) {
+	if s.fixedVehicleID != "" {
+		rows, err := s.db.Query(ctx, `
+			SELECT vehicle_id, lat, lng
+			FROM vehicles
+			WHERE vehicle_id = $1
+			LIMIT 1
+		`, s.fixedVehicleID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		items := make([]simulationVehicle, 0, 1)
+		for rows.Next() {
+			var v simulationVehicle
+			if err := rows.Scan(&v.VehicleID, &v.Lat, &v.Lng); err != nil {
+				return nil, err
+			}
+			items = append(items, v)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return items, nil
+	}
+
 	rows, err := s.db.Query(ctx, `
 		SELECT vehicle_id, lat, lng
 		FROM vehicles
+		WHERE excluded_from_global_simulation = FALSE
 		ORDER BY created_at DESC
 		LIMIT $1
 	`, limit)

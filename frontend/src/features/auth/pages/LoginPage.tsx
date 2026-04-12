@@ -29,8 +29,8 @@ export function LoginPage() {
     try {
       await loginViaApi(username, password);
       window.location.href = '/';
-    } catch {
-      setError('Usuario o contrasena invalidos.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Usuario o contrasena invalidos.');
     } finally {
       setLoading(false);
     }
@@ -52,7 +52,7 @@ export function LoginPage() {
                   />
                 </div>
                 <h1 className="font-headline text-4xl font-black tracking-tight text-on-surface">Bienvenido</h1>
-                <p className="mt-1 text-sm text-on-surface-variant">Inicia sesion para acceder al panel de monitoreo.</p>
+                <p className="mt-1 text-sm text-on-surface-variant">Inicia sesion para acceder al panel administrativo de monitoreo.</p>
               </header>
 
               <form className="space-y-4" onSubmit={onSubmit}>

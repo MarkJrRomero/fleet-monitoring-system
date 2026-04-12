@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { ReactNode, useEffect, useState } from 'react';
-import { ensureSession } from '../services/authService';
+import { ensureSession, hasRealmRole } from '../services/authService';
 
 type ProtectedRouteProps = {
   children: ReactNode;
@@ -39,7 +39,9 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     return <Navigate to="/login" replace />;
   }
 
-  void requiredRole;
+  if (requiredRole && !hasRealmRole(requiredRole)) {
+    return <Navigate to="/forbidden" replace />;
+  }
 
   return <>{children}</>;
 }

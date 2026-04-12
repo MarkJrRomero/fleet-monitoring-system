@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,6 +26,21 @@ type config struct {
 	RedisChannel  string
 	AlertsChannel string
 }
+
+type apiErrorEnvelope struct {
+	Error apiErrorBody `json:"error"`
+}
+
+type apiErrorBody struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Status    int    `json:"status"`
+	Service   string `json:"service"`
+	RequestID string `json:"request_id,omitempty"`
+	Timestamp string `json:"timestamp"`
+}
+
+var requestCounter uint64
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(_ *http.Request) bool { return true },
@@ -47,14 +64,13 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	mux.HandleFunc("GET /ws/positions", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			writeError(w, http.StatusBadRequest, "WS_UPGRADE_FAILED", "no fue posible abrir websocket de posiciones")
 			return
 		}
 
@@ -71,6 +87,7 @@ func main() {
 	mux.HandleFunc("GET /ws/alerts", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			writeError(w, http.StatusBadRequest, "WS_UPGRADE_FAILED", "no fue posible abrir websocket de alertas")
 			return
 		}
 
@@ -86,7 +103,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           mux,
+		Handler:           withRequestID(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -108,6 +125,40 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown con error: %v", err)
 	}
+}
+
+func withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := strings.TrimSpace(r.Header.Get("X-Request-Id"))
+		if requestID == "" {
+			requestID = fmt.Sprintf("ws-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&requestCounter, 1))
+		}
+		w.Header().Set("X-Request-Id", requestID)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeError(w http.ResponseWriter, status int, code string, message string) {
+	if strings.TrimSpace(code) == "" {
+		code = "REQUEST_ERROR"
+	}
+
+	writeJSON(w, status, apiErrorEnvelope{
+		Error: apiErrorBody{
+			Code:      code,
+			Message:   message,
+			Status:    status,
+			Service:   "websocket-service",
+			RequestID: w.Header().Get("X-Request-Id"),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		},
+	})
 }
 
 func loadConfig() config {

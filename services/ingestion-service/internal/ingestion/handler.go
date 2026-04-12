@@ -8,7 +8,6 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +47,19 @@ type Handler struct {
 	routingQueue       chan routingJob
 	routingHTTPClient  *http.Client
 	clickHouseSink     *ClickHouseSink
+}
+
+type apiErrorEnvelope struct {
+	Error apiErrorBody `json:"error"`
+}
+
+type apiErrorBody struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Status    int    `json:"status"`
+	Service   string `json:"service"`
+	RequestID string `json:"request_id,omitempty"`
+	Timestamp string `json:"timestamp"`
 }
 
 type gpsIngestRequest struct {
@@ -703,8 +715,36 @@ func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{
-		"error": message,
-		"code":  strconv.Itoa(status),
+	writeJSON(w, status, apiErrorEnvelope{
+		Error: apiErrorBody{
+			Code:      defaultErrorCode(status),
+			Message:   message,
+			Status:    status,
+			Service:   "ingestion-service",
+			RequestID: w.Header().Get("X-Request-Id"),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		},
 	})
+}
+
+func defaultErrorCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "BAD_REQUEST"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "CONFLICT"
+	case http.StatusServiceUnavailable:
+		return "SERVICE_UNAVAILABLE"
+	case http.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
+	default:
+		if status >= 500 {
+			return "INTERNAL_ERROR"
+		}
+		return "REQUEST_ERROR"
+	}
 }

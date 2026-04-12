@@ -13,6 +13,7 @@ import { getMainNavItems } from '../../../shared/config/navItems';
 import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
 import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { AppShell } from '../../../shared/layouts/AppShell';
+import { formatApiError, parseApiError } from '../../../shared/api/http';
 import { getVehicleMapColor, getVehicleStatusLabel } from '../utils/vehicleStatus';
 
 type AlertEvent = {
@@ -377,6 +378,7 @@ export function DashboardPage() {
   const [focusedPosition, setFocusedPosition] = useState<[number, number] | null>(null);
   const [statusPriority, setStatusPriority] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [flashingVehicleIds, setFlashingVehicleIds] = useState<Set<string>>(new Set());
   const previousVehicleSnapshotRef = useRef<Map<string, string>>(new Map());
   const flashTimeoutsRef = useRef<Map<string, number>>(new Map());
@@ -387,12 +389,14 @@ export function DashboardPage() {
     try {
       const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
       if (!response.ok) {
-        throw new Error('No fue posible consultar vehiculos');
+        throw await parseApiError(response, 'No fue posible consultar vehiculos');
       }
       const data = (await response.json()) as VehiclesResponse;
       setVehiclesCatalog(data.vehicles ?? []);
-    } catch {
+      setCatalogError(null);
+    } catch (error) {
       setVehiclesCatalog([]);
+      setCatalogError(formatApiError(error, 'No fue posible consultar vehiculos'));
     }
   };
 
@@ -732,6 +736,12 @@ export function DashboardPage() {
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="font-headline text-xl font-bold text-slate-800">Alertas activas</h2>
               </div>
+
+              {catalogError ? (
+                <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                  {catalogError}
+                </div>
+              ) : null}
 
               <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <StyledSelect options={STATUS_PRIORITY_OPTIONS} value={statusPriority} onChange={setStatusPriority} />

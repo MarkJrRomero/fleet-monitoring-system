@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, Database, Radio, Send, Timer } from 'lucide-re
 import { clearSession, getUsername } from '../../auth/services/authService';
 import { getMainNavItems } from '../../../shared/config/navItems';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
+import { formatApiError, parseApiError } from '../../../shared/api/http';
 import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { AppShell } from '../../../shared/layouts/AppShell';
 import { confirmAction, showError, showSuccess } from '../../../shared/ui/alerts';
@@ -90,7 +91,7 @@ export function SimulationPage() {
     try {
       const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
       if (!response.ok) {
-        throw new Error('No fue posible consultar los vehiculos');
+  		throw await parseApiError(response, 'No fue posible consultar los vehiculos');
       }
       const data = (await response.json()) as VehiclesResponse;
       setVehicles(data.vehicles ?? []);
@@ -109,7 +110,7 @@ export function SimulationPage() {
     try {
       const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/status`);
       if (!response.ok) {
-        throw new Error('No fue posible consultar estado de simulacion');
+  		throw await parseApiError(response, 'No fue posible consultar estado de simulacion');
       }
 
       const data = (await response.json()) as SimulationStatus;
@@ -123,7 +124,7 @@ export function SimulationPage() {
     try {
       const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/simulation/trace`);
       if (!response.ok) {
-        throw new Error('No fue posible consultar trazas de simulacion');
+  		throw await parseApiError(response, 'No fue posible consultar trazas de simulacion');
       }
       const data = (await response.json()) as SimulationTraceResponse;
       setTraceItems(data.items ?? []);
@@ -158,16 +159,16 @@ export function SimulationPage() {
       });
 
       if (!response.ok) {
-        throw new Error('No fue posible crear vehiculos');
+  		throw await parseApiError(response, 'No fue posible crear vehiculos');
       }
 
       const data = (await response.json()) as { created?: number; total?: number };
       setLastCreateResult(`Creados: ${data.created ?? 0} | Total BD: ${data.total ?? 0}`);
       await showSuccess('Vehiculos creados', `Se agregaron ${data.created ?? 0} vehiculos. Total en BD: ${data.total ?? 0}.`);
       await loadVehicles();
-    } catch {
+    } catch (error) {
       setLastCreateResult('Error creando vehiculos en base de datos');
-      await showError('No se pudieron crear vehiculos', 'Verifica el estado del servicio y vuelve a intentar.');
+      await showError('No se pudieron crear vehiculos', formatApiError(error, 'Verifica el estado del servicio y vuelve a intentar.'));
     } finally {
       setIsCreatingVehicles(false);
     }
@@ -193,7 +194,7 @@ export function SimulationPage() {
       });
 
       if (!response.ok) {
-        throw new Error('No fue posible limpiar la base de datos');
+  		throw await parseApiError(response, 'No fue posible limpiar la base de datos');
       }
 
       setTraceItems([]);
@@ -203,9 +204,9 @@ export function SimulationPage() {
 
       await loadVehicles();
       await loadSimulationStatus();
-    } catch {
+    } catch (error) {
       setLastClearResult('Error limpiando la base de datos');
-      await showError('No se pudo limpiar la base de datos', 'Intenta nuevamente en unos segundos.');
+      await showError('No se pudo limpiar la base de datos', formatApiError(error, 'Intenta nuevamente en unos segundos.'));
     } finally {
       setIsClearingDatabase(false);
     }
@@ -225,7 +226,7 @@ export function SimulationPage() {
             method: 'POST'
           });
           if (!response.ok) {
-            throw new Error('No fue posible detener simulacion');
+			throw await parseApiError(response, 'No fue posible detener simulacion');
           }
           await showSuccess('Simulacion detenida', 'Se detuvo el envio de datos del simulador.');
         } else {
@@ -246,15 +247,15 @@ export function SimulationPage() {
             })
           });
           if (!response.ok) {
-            throw new Error('No fue posible iniciar simulacion');
+			throw await parseApiError(response, 'No fue posible iniciar simulacion');
           }
           await showSuccess('Simulacion iniciada', `Se simularan ${selectedCount} vehiculos con perfil ${selectedProfile.label.toLowerCase()}.`);
         }
 
         await loadSimulationStatus();
         await loadSimulationTrace();
-      } catch {
-        await showError('Operacion de simulacion fallida', 'No fue posible completar la solicitud de simulacion.');
+      } catch (error) {
+  		await showError('Operacion de simulacion fallida', formatApiError(error, 'No fue posible completar la solicitud de simulacion.'));
       } finally {
         setIsSimulationSubmitting(false);
       }

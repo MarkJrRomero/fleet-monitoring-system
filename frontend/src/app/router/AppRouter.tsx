@@ -16,7 +16,7 @@ export function AppRouter() {
         <Route
           path="/"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="admin">
               <DashboardPage />
             </ProtectedRoute>
           }
@@ -25,7 +25,7 @@ export function AppRouter() {
         <Route
           path="/admin"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="admin">
               <AdminPage />
             </ProtectedRoute>
           }
@@ -34,7 +34,7 @@ export function AppRouter() {
         <Route
           path="/simulacion"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="admin">
               <SimulationPage />
             </ProtectedRoute>
           }
@@ -43,7 +43,7 @@ export function AppRouter() {
         <Route
           path="/vehiculos"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="admin">
               <VehiclesPage />
             </ProtectedRoute>
           }

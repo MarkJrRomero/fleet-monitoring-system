@@ -4,6 +4,7 @@ import { clearSession, getUsername } from '../../auth/services/authService';
 import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../../dashboard/utils/vehicleStatus';
 import { getMainNavItems } from '../../../shared/config/navItems';
 import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
+import { formatApiError, parseApiError } from '../../../shared/api/http';
 import { StatusBadge } from '../../../shared/components/StatusBadge';
 import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { AppShell } from '../../../shared/layouts/AppShell';
@@ -43,7 +44,7 @@ export function VehiclesPage() {
     try {
       const response = await fetch(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
       if (!response.ok) {
-        throw new Error('No fue posible cargar vehiculos');
+        throw await parseApiError(response, 'No fue posible cargar vehiculos');
       }
       const data = (await response.json()) as VehiclesResponse;
       setVehicles(data.vehicles ?? []);
@@ -99,7 +100,7 @@ export function VehiclesPage() {
       });
 
       if (!response.ok) {
-        throw new Error('No fue posible eliminar el vehiculo');
+        throw await parseApiError(response, 'No fue posible eliminar el vehiculo');
       }
 
       setVehicles((prev) => prev.filter((item) => item.vehicle_id !== vehicleID));
@@ -109,8 +110,8 @@ export function VehiclesPage() {
           ? `${vehicleID} fue eliminado del catalogo y se conservo su historico.`
           : `${vehicleID} fue eliminado junto con su historico.`
       );
-    } catch {
-      await showError('Error eliminando vehiculo', 'Intenta nuevamente en unos segundos.');
+    } catch (error) {
+      await showError('Error eliminando vehiculo', formatApiError(error, 'Intenta nuevamente en unos segundos.'));
     } finally {
       setDeletingVehicleIDs((prev) => {
         const next = { ...prev };

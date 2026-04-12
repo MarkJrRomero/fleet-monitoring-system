@@ -17,9 +17,23 @@ import (
 )
 
 type Handler struct {
-	db        *pgxpool.Pool
-	simulator *simulator
-	redis     *redis.Client
+	db              *pgxpool.Pool
+	simulator       *simulator
+	driverSimulator *simulator
+	redis           *redis.Client
+}
+
+type apiErrorEnvelope struct {
+	Error apiErrorBody `json:"error"`
+}
+
+type apiErrorBody struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Status    int    `json:"status"`
+	Service   string `json:"service"`
+	RequestID string `json:"request_id,omitempty"`
+	Timestamp string `json:"timestamp"`
 }
 
 type Vehicle struct {
@@ -66,11 +80,21 @@ type simulationTraceResponse struct {
 	Items []simulationTransmission `json:"items"`
 }
 
+type driverSimulationStartRequest struct {
+	TickMS int `json:"tick_ms"`
+}
+
 type deleteScope string
 
 const (
 	deleteScopeVehicleOnly deleteScope = "vehicle_only"
 	deleteScopeWithHistory deleteScope = "with_history"
+)
+
+const (
+	DefaultDriverUsername    = "driver_test"
+	DefaultDriverVehicleID   = "SIM-00001"
+	DefaultDriverVehicleIMEI = "860000000000001"
 )
 
 var idPattern = regexp.MustCompile(`^[A-Z0-9_-]{3,40}$`)
@@ -85,12 +109,12 @@ const (
 	bogotaMaxLng  = -73.95
 )
 
-func NewHandler(db *pgxpool.Pool, sim *simulator) *Handler {
-	return &Handler{db: db, simulator: sim, redis: nil}
+func NewHandler(db *pgxpool.Pool, sim *simulator, driverSim *simulator) *Handler {
+	return &Handler{db: db, simulator: sim, driverSimulator: driverSim, redis: nil}
 }
 
-func NewHandlerWithCache(db *pgxpool.Pool, sim *simulator, redisClient *redis.Client) *Handler {
-	return &Handler{db: db, simulator: sim, redis: redisClient}
+func NewHandlerWithCache(db *pgxpool.Pool, sim *simulator, driverSim *simulator, redisClient *redis.Client) *Handler {
+	return &Handler{db: db, simulator: sim, driverSimulator: driverSim, redis: redisClient}
 }
 
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
@@ -522,7 +546,7 @@ func (h *Handler) StartSimulation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	totalVehicles, err := h.countVehicles(r.Context())
+	totalVehicles, err := h.countSimulatableVehicles(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "no fue posible contar vehiculos disponibles")
 		return
@@ -547,6 +571,50 @@ func (h *Handler) StartSimulation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, h.simulator.Status())
+}
+
+func (h *Handler) GetDriverSimulationStatus(w http.ResponseWriter, _ *http.Request) {
+	if h.driverSimulator == nil {
+		writeError(w, http.StatusServiceUnavailable, "simulador de conductor no disponible")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, h.driverSimulator.Status())
+}
+
+func (h *Handler) StartDriverSimulation(w http.ResponseWriter, r *http.Request) {
+	if h.driverSimulator == nil {
+		writeError(w, http.StatusServiceUnavailable, "simulador de conductor no disponible")
+		return
+	}
+
+	req := driverSimulationStartRequest{TickMS: 1000}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "payload invalido")
+			return
+		}
+	}
+	if req.TickMS <= 0 {
+		req.TickMS = 1000
+	}
+
+	if err := h.driverSimulator.Start(1, req.TickMS); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, h.driverSimulator.Status())
+}
+
+func (h *Handler) StopDriverSimulation(w http.ResponseWriter, _ *http.Request) {
+	if h.driverSimulator == nil {
+		writeError(w, http.StatusServiceUnavailable, "simulador de conductor no disponible")
+		return
+	}
+
+	h.driverSimulator.Stop()
+	writeJSON(w, http.StatusOK, h.driverSimulator.Status())
 }
 
 func (h *Handler) GetSimulationTrace(w http.ResponseWriter, r *http.Request) {
@@ -576,6 +644,10 @@ func (h *Handler) ClearDatabase(w http.ResponseWriter, r *http.Request) {
 		h.simulator.Stop()
 		h.simulator.ResetState()
 	}
+	if h.driverSimulator != nil {
+		h.driverSimulator.Stop()
+		h.driverSimulator.ResetState()
+	}
 
 	_, err := h.db.Exec(ctx, `
 		DO $$
@@ -589,6 +661,11 @@ func (h *Handler) ClearDatabase(w http.ResponseWriter, r *http.Request) {
 	`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "error limpiando base de datos")
+		return
+	}
+
+	if err := seedDefaultDriverVehicle(ctx, h.db); err != nil {
+		writeError(w, http.StatusInternalServerError, "error recreando vehiculo por defecto del conductor")
 		return
 	}
 
@@ -607,6 +684,8 @@ func EnsureSchema(ctx context.Context, db *pgxpool.Pool) error {
 			lat DOUBLE PRECISION NOT NULL,
 			lng DOUBLE PRECISION NOT NULL,
 			status TEXT NOT NULL DEFAULT 'active',
+			assigned_username TEXT NOT NULL DEFAULT '',
+			excluded_from_global_simulation BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
 
@@ -615,6 +694,12 @@ func EnsureSchema(ctx context.Context, db *pgxpool.Pool) error {
 
 		ALTER TABLE vehicles
 		ADD COLUMN IF NOT EXISTS imei TEXT;
+
+		ALTER TABLE vehicles
+		ADD COLUMN IF NOT EXISTS assigned_username TEXT NOT NULL DEFAULT '';
+
+		ALTER TABLE vehicles
+		ADD COLUMN IF NOT EXISTS excluded_from_global_simulation BOOLEAN NOT NULL DEFAULT FALSE;
 
 		UPDATE vehicles
 		SET imei = CONCAT('86', LPAD(id::text, 13, '0'))
@@ -625,6 +710,9 @@ func EnsureSchema(ctx context.Context, db *pgxpool.Pool) error {
 
 		CREATE INDEX IF NOT EXISTS idx_vehicles_vehicle_id
 		ON vehicles (vehicle_id);
+
+		CREATE INDEX IF NOT EXISTS idx_vehicles_excluded_from_global_simulation
+		ON vehicles (excluded_from_global_simulation);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_imei_unique
 		ON vehicles (imei);
@@ -643,7 +731,11 @@ func EnsureSchema(ctx context.Context, db *pgxpool.Pool) error {
 		CREATE INDEX IF NOT EXISTS idx_vehicle_cache_invalidation_jobs_pending
 		ON vehicle_cache_invalidation_jobs (status, next_attempt_at);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return seedDefaultDriverVehicle(ctx, db)
 }
 
 func (h *Handler) nextVehicleNumericIndex(ctx context.Context) (int, error) {
@@ -666,6 +758,33 @@ func (h *Handler) countVehicles(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return total, nil
+}
+
+func (h *Handler) countSimulatableVehicles(ctx context.Context) (int, error) {
+	var total int
+	err := h.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM vehicles
+		WHERE excluded_from_global_simulation = FALSE
+	`).Scan(&total)
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func seedDefaultDriverVehicle(ctx context.Context, db *pgxpool.Pool) error {
+	_, err := db.Exec(ctx, `
+		INSERT INTO vehicles (vehicle_id, imei, lat, lng, status, assigned_username, excluded_from_global_simulation)
+		VALUES ($1, $2, $3, $4, 'online', $5, TRUE)
+		ON CONFLICT (vehicle_id) DO UPDATE
+		SET imei = EXCLUDED.imei,
+			lat = EXCLUDED.lat,
+			lng = EXCLUDED.lng,
+			assigned_username = EXCLUDED.assigned_username,
+			excluded_from_global_simulation = EXCLUDED.excluded_from_global_simulation
+	`, DefaultDriverVehicleID, DefaultDriverVehicleIMEI, bogotaBaseLat, bogotaBaseLng, DefaultDriverUsername)
+	return err
 }
 
 func parseVehicleIDFromPath(path string) (string, error) {
@@ -704,5 +823,36 @@ func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+	writeJSON(w, status, apiErrorEnvelope{
+		Error: apiErrorBody{
+			Code:      defaultErrorCode(status),
+			Message:   message,
+			Status:    status,
+			Service:   "vehicle-service",
+			RequestID: w.Header().Get("X-Request-Id"),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+}
+
+func defaultErrorCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "BAD_REQUEST"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "CONFLICT"
+	case http.StatusServiceUnavailable:
+		return "SERVICE_UNAVAILABLE"
+	case http.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
+	default:
+		if status >= 500 {
+			return "INTERNAL_ERROR"
+		}
+		return "REQUEST_ERROR"
+	}
 }

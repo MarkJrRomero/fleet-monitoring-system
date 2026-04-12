@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -67,7 +68,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           withCORS(mux),
+		Handler:           withRequestID(withCORS(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -88,6 +89,19 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown con error: %v", err)
 	}
+}
+
+var requestCounter uint64
+
+func withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := strings.TrimSpace(r.Header.Get("X-Request-Id"))
+		if requestID == "" {
+			requestID = fmt.Sprintf("ing-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&requestCounter, 1))
+		}
+		w.Header().Set("X-Request-Id", requestID)
+		next.ServeHTTP(w, r)
+	})
 }
 
 type config struct {
