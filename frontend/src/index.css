@@ -25,3 +25,26 @@
 .input-transition {
   transition: all 0.2s ease-in-out;
 }
+
+.scalar-docs-shell {
+  min-height: calc(100dvh - 13rem);
+}
+
+.scalar-docs-shell .scalar-app {
+  min-height: calc(100dvh - 14rem);
+  border-radius: 24px;
+}
+
+.scalar-docs-standalone .scalar-app {
+  min-height: 100dvh;
+}
+
+@media (max-width: 1023px) {
+  .scalar-docs-shell {
+    min-height: calc(100dvh - 10rem);
+  }
+
+  .scalar-docs-shell .scalar-app {
+    min-height: calc(100dvh - 11rem);
+  }
+}

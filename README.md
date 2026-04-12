@@ -1,3 +1,9 @@
+# Fleet Monitoring System
+
+## Documentacion API
+
+El panel web ahora incluye una referencia unificada con Scalar en la ruta /documentacion.
+La vista consolida las especificaciones OpenAPI de Vehicle Service, Ingestion Service y WebSocket Service en una sola experiencia navegable.
 # SMTF - Sistema de Monitoreo y Telemetría de Flotas
 
 Sistema de monitoreo de flotas con frontend React, servicios en Go y capa analitica ClickHouse + Superset.

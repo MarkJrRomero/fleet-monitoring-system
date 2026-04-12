@@ -1,0 +1,105 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Fleet Monitoring - WebSocket Service",
+    "version": "1.0.0",
+    "description": "Distribucion en tiempo real de posiciones y alertas via WebSocket a partir de eventos publicados en Redis."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8093",
+      "description": "WebSocket Service local"
+    }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Estado del servicio" },
+    { "name": "Realtime", "description": "Canales WebSocket para consumo de eventos" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "PositionEvent": {
+        "type": "object",
+        "properties": {
+          "vehicle_id": { "type": "string", "example": "SIM-00023" },
+          "lat": { "type": "number", "example": 4.711 },
+          "lng": { "type": "number", "example": -74.0721 },
+          "speed_kmh": { "type": "number", "example": 38.4 },
+          "status": { "type": "string", "example": "online" },
+          "panic_button": { "type": "boolean", "example": false },
+          "recorded_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AlertEvent": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "example": "Exceso de velocidad" },
+          "vehicle_id": { "type": "string", "example": "SIM-00023" },
+          "lat": { "type": "number", "example": 4.711 },
+          "lng": { "type": "number", "example": -74.0721 },
+          "detected_at": { "type": "string", "format": "date-time" },
+          "message": { "type": "string", "example": "Vehiculo excedio 100 km/h" }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Verificar estado del servicio",
+        "security": [],
+        "responses": {
+          "200": { "description": "Servicio disponible" }
+        }
+      }
+    },
+    "/ws/positions": {
+      "get": {
+        "tags": ["Realtime"],
+        "summary": "Abrir stream de posiciones",
+        "description": "Handshake HTTP que actualiza a WebSocket. El backend acepta Authorization Bearer y, para clientes navegador, tambien access_token por query string. Los mensajes emitidos siguen el esquema PositionEvent.",
+        "parameters": [
+          {
+            "name": "access_token",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Alternativa para navegadores cuando el cliente WebSocket no permite headers personalizados."
+          }
+        ],
+        "responses": {
+          "101": { "description": "Conexion WebSocket establecida" },
+          "401": { "description": "Token invalido o ausente" }
+        }
+      }
+    },
+    "/ws/alerts": {
+      "get": {
+        "tags": ["Realtime"],
+        "summary": "Abrir stream de alertas",
+        "description": "Handshake HTTP que actualiza a WebSocket. Los mensajes emitidos siguen el esquema AlertEvent.",
+        "parameters": [
+          {
+            "name": "access_token",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Alternativa para navegadores cuando el cliente WebSocket no permite headers personalizados."
+          }
+        ],
+        "responses": {
+          "101": { "description": "Conexion WebSocket establecida" },
+          "401": { "description": "Token invalido o ausente" }
+        }
+      }
+    }
+  }
+}
