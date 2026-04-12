@@ -7,6 +7,8 @@ type TokenResponse = {
   scope?: string;
 };
 
+import { formatApiError, parseApiError } from '../../../shared/api/http';
+
 type JwtPayload = {
   preferred_username?: string;
   realm_access?: {
@@ -21,10 +23,25 @@ const SESSION_EXPIRES_AT_KEY = 'fleet_session_expires_at';
 const MIN_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 const ACCESS_TOKEN_SKEW_MS = 30 * 1000;
 
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, '');
+}
+
+function buildDefaultGatewayBaseUrl() {
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  return `${protocol}//${hostname}:8082`;
+}
+
+const defaultGatewayBaseUrl = buildDefaultGatewayBaseUrl();
+
 const AUTH_CONFIG = {
-  tokenUrl: 'http://localhost:8080/realms/fleet-monitoring/protocol/openid-connect/token',
-  clientId: 'fleet-web-client'
+  baseUrl: trimTrailingSlash(import.meta.env.VITE_AUTH_BASE_URL || `${defaultGatewayBaseUrl}/auth`),
+  realm: import.meta.env.VITE_AUTH_REALM || 'fleet-monitoring',
+  clientId: import.meta.env.VITE_AUTH_CLIENT_ID || 'fleet-web-client'
 };
+
+const TOKEN_URL = `${AUTH_CONFIG.baseUrl}/realms/${AUTH_CONFIG.realm}/protocol/openid-connect/token`;
 
 function parseJwt(token: string): JwtPayload | null {
   try {
@@ -176,17 +193,28 @@ export async function loginViaApi(username: string, password: string) {
   params.append('username', username);
   params.append('password', password);
 
-  const response = await fetch(AUTH_CONFIG.tokenUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: params
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params
+    });
+  } catch (error) {
+    throw new Error(
+      formatApiError(error, 'No fue posible conectar con el servicio de autenticacion.')
+    );
+  }
 
   if (!response.ok) {
     clearSession();
-    throw new Error('Credenciales invalidas');
+    if (response.status === 400 || response.status === 401) {
+      throw await parseApiError(response, 'Credenciales invalidas');
+    }
+    throw await parseApiError(response, 'No fue posible iniciar sesion. Intenta nuevamente.');
   }
 
   const data = (await response.json()) as TokenResponse;
@@ -212,17 +240,25 @@ export async function refreshSession() {
   params.append('client_id', AUTH_CONFIG.clientId);
   params.append('refresh_token', refreshToken);
 
-  const response = await fetch(AUTH_CONFIG.tokenUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: params
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params
+    });
+  } catch (error) {
+    throw new Error(
+      formatApiError(error, 'No fue posible validar tu sesion por un problema de red.')
+    );
+  }
 
   if (!response.ok) {
     clearSession();
-    throw new Error('No fue posible refrescar la sesion');
+    throw await parseApiError(response, 'No fue posible refrescar la sesion');
   }
 
   const data = (await response.json()) as TokenResponse;

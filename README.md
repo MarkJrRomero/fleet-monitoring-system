@@ -72,24 +72,33 @@ Luego de `make up`, estos endpoints quedan activos:
 
 ### Servicios no visuales (APIs y streams)
 
+Gateway recomendado (Nginx):
+
+- Base URL: http://localhost:8082
+- Rutas:
+  - `/vehicle/*` -> Vehicle Service
+  - `/ingestion/*` -> Ingestion Service
+  - `/ws/*` -> WebSocket Service
+  - `/auth/*` -> Keycloak
+
 1. ClickHouse HTTP API
   - URL: http://localhost:8123
   - Auth: default / clickhouse
 
 2. Ingestion Service API
-  - URL: http://localhost:8091
+  - URL (via gateway): http://localhost:8082/ingestion
   - Auth: sin autenticacion en local
 
 3. Vehicle Service API
-  - URL: http://localhost:8094
+  - URL (via gateway): http://localhost:8082/vehicle
   - Auth: sin autenticacion en local
 
 4. WebSocket posiciones
-  - URL: ws://localhost:8093/ws/positions
+  - URL (via gateway): ws://localhost:8082/ws/positions
   - Auth: sin autenticacion en local
 
 5. WebSocket alertas
-  - URL: ws://localhost:8093/ws/alerts
+  - URL (via gateway): ws://localhost:8082/ws/alerts
   - Auth: sin autenticacion en local
 
 ## Comandos principales

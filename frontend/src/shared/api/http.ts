@@ -82,6 +82,22 @@ export async function parseApiError(response: Response, fallbackMessage: string)
 
 export function formatApiError(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiHttpError) {
+    if (error.status === 401) {
+      return 'Tu sesion no es valida o expiro. Inicia sesion nuevamente.';
+    }
+
+    if (error.status === 403) {
+      return 'No tienes permisos para realizar esta accion.';
+    }
+
+    if (error.status === 404) {
+      return 'El recurso solicitado no fue encontrado.';
+    }
+
+    if (error.status === 502 || error.status === 503 || error.status === 504) {
+      return 'Los servicios estan temporalmente no disponibles. Intenta nuevamente en unos segundos.';
+    }
+
     const suffixParts = [error.code, error.requestId].filter(Boolean);
     if (suffixParts.length === 0) {
       return error.message;
@@ -90,6 +106,21 @@ export function formatApiError(error: unknown, fallbackMessage: string): string 
   }
 
   if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+
+    if (error.name === 'AbortError') {
+      return 'La solicitud tardo demasiado y fue cancelada. Intenta nuevamente.';
+    }
+
+    if (
+      message.includes('failed to fetch') ||
+      message.includes('networkerror') ||
+      message.includes('load failed') ||
+      message.includes('cors')
+    ) {
+      return 'No fue posible conectar con el servidor. Verifica tu red o que el gateway este activo.';
+    }
+
     return error.message;
   }
 

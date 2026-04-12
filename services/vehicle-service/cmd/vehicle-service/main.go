@@ -179,7 +179,7 @@ func loadConfig() config {
 		IngestionBaseURL: ingestionBaseURL,
 		RedisAddr:        redisAddr,
 		KeycloakBaseURL:  envString("KEYCLOAK_BASE_URL", "http://host.docker.internal:8080"),
-		KeycloakHost:     envString("KEYCLOAK_HOST_HEADER", "localhost:8080"),
+		KeycloakHost:     envString("KEYCLOAK_HOST_HEADER", "localhost"),
 		KeycloakRealm:    envString("KEYCLOAK_REALM", "fleet-monitoring"),
 		KeycloakClientID: envString("KEYCLOAK_AUTH_CLIENT_ID", "ingestion-service"),
 		KeycloakSecret:   envString("KEYCLOAK_AUTH_CLIENT_SECRET", "tu-secreto-muy-seguro"),
