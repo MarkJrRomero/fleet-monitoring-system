@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
+	FlatList,
   Image,
   Pressable,
   StyleSheet,
@@ -56,6 +56,28 @@ function formatCoordinate(value: number | undefined): string {
 		return '--';
 	}
 	return parsed.toFixed(5);
+}
+
+function clusterCount(cluster: any): number {
+	const raw = cluster?.properties?.point_count;
+	if (typeof raw === 'number' && Number.isFinite(raw)) {
+		return raw;
+	}
+	const parsed = Number(raw);
+	return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function clusterColorByCount(count: number): string {
+	if (count >= 120) {
+		return '#b91c1c';
+	}
+	if (count >= 60) {
+		return '#c2410c';
+	}
+	if (count >= 20) {
+		return '#0f766e';
+	}
+	return '#0d9488';
 }
 
 export function AdminDashboardScreen() {
@@ -155,18 +177,13 @@ export function AdminDashboardScreen() {
 		};
 	}, []);
 
-	const selectedVehicle = useMemo(
-		() => vehicles.find((vehicle) => vehicle.vehicle_id === selectedVehicleId) || null,
-		[selectedVehicleId, vehicles]
-	);
-
 	const mappableVehicles = useMemo(
 		() => vehicles.filter(hasValidCoordinate),
 		[vehicles]
 	);
 
-	const listedVehicles = useMemo(
-		() => vehicles.filter((vehicle) => vehicle.vehicle_id !== selectedVehicleId),
+	const selectedVehicle = useMemo(
+		() => vehicles.find((vehicle) => vehicle.vehicle_id === selectedVehicleId) || null,
 		[vehicles, selectedVehicleId]
 	);
 
@@ -186,17 +203,43 @@ export function AdminDashboardScreen() {
 		if (lat === null || lng === null) {
 			return;
 		}
+		const maxFocusZoom = 18.8;
 
 		setSelectedVehicleId(vehicle.vehicle_id);
+		if (typeof mapRef.current?.animateCamera === 'function') {
+			mapRef.current.animateCamera(
+				{
+					center: { latitude: lat, longitude: lng },
+					zoom: maxFocusZoom
+				},
+				{ duration: 380 }
+			);
+			return;
+		}
+
 		mapRef.current?.animateToRegion(
 			{
 				latitude: lat,
 				longitude: lng,
-				latitudeDelta: 0.18,
-				longitudeDelta: 0.18
+				latitudeDelta: 0.006,
+				longitudeDelta: 0.006
 			},
-			350
+			380
 		);
+	};
+
+	const clearSelection = () => {
+		setSelectedVehicleId(null);
+	};
+
+	const focusVehicleByID = (vehicleID: string) => {
+		const target = vehicles.find((vehicle) => vehicle.vehicle_id === vehicleID);
+		if (!target) {
+			return;
+		}
+
+		setActiveTab('fleet');
+		focusVehicle(target);
 	};
 
 	return (
@@ -204,6 +247,7 @@ export function AdminDashboardScreen() {
 			<ClusteredMapView
 				ref={mapRef}
 				animationEnabled
+				tracksViewChanges={false}
 				clusterColor={colors.primaryDark}
 				clusterTextColor="#ffffff"
 				initialRegion={DEFAULT_REGION}
@@ -213,16 +257,21 @@ export function AdminDashboardScreen() {
 				renderCluster={(cluster: any) => (
 					// react-native-map-clustering entrega la posicion en geometry.coordinates
 					// [lng, lat], no en cluster.coordinate.
+					// El conteo viene en properties.point_count(_abbreviated).
+					// Ajuste visual para Android: tamano y color dinamico por volumen.
 					<Marker
 						key={`cluster-${cluster.properties?.cluster_id ?? cluster.id}`}
+						anchor={{ x: 0.5, y: 0.5 }}
 						coordinate={{
 							latitude: cluster.geometry.coordinates[1],
 							longitude: cluster.geometry.coordinates[0]
 						}}
 						onPress={cluster.onPress}
 					>
-						<View style={styles.clusterWrap}>
-							<Text style={styles.clusterText}>{cluster.pointCount}</Text>
+						<View style={[styles.clusterWrap, { backgroundColor: clusterColorByCount(clusterCount(cluster)) }]}>
+							<Text style={styles.clusterText}>
+								{String(cluster.properties?.point_count_abbreviated ?? cluster.properties?.point_count ?? '0')}
+							</Text>
 						</View>
 					</Marker>
 				)}
@@ -239,6 +288,7 @@ export function AdminDashboardScreen() {
 					<Marker
 						coordinate={{ latitude: lat, longitude: lng }}
 						key={vehicle.vehicle_id}
+						anchor={{ x: 0.5, y: 0.5 }}
 						onPress={() => focusVehicle(vehicle)}
 						title={vehicle.vehicle_id}
 						description={`Estado: ${getVehicleStatusLabel(vehicle.status)}`}
@@ -258,6 +308,24 @@ export function AdminDashboardScreen() {
 					);
 				})}
 			</ClusteredMapView>
+
+			{activeTab === 'fleet' && selectedVehicle ? (
+				<View style={[styles.vehicleDetailOverlay, { bottom: insets.bottom + 86 }]}> 
+					<GlassCard style={styles.vehicleDetailCard}>
+						<View style={styles.selectedVehicleHeader}>
+							<Text style={styles.selectedVehicleTitle}>{selectedVehicle.vehicle_id}</Text>
+							<View style={styles.selectedVehicleHeaderRight}>
+								<StatusPill label={getVehicleStatusLabel(selectedVehicle.status)} tone={statusTone(selectedVehicle.status)} />
+								<Pressable onPress={clearSelection} style={styles.closeDetailButton}>
+									<Ionicons color={colors.textMuted} name="close" size={16} />
+								</Pressable>
+							</View>
+						</View>
+						<Text style={styles.infoLine}>IMEI: {selectedVehicle.imei || 'sin IMEI'}</Text>
+						<Text style={styles.infoLine}>Coordenadas: {formatCoordinate(selectedVehicle.lat)}, {formatCoordinate(selectedVehicle.lng)}</Text>
+					</GlassCard>
+				</View>
+			) : null}
 
 			<View style={[styles.topOverlay, { paddingTop: insets.top + 8 }]}> 
 				<GlassCard style={styles.topCard}>
@@ -290,46 +358,16 @@ export function AdminDashboardScreen() {
 			</View>
 
 			<View style={[styles.bottomOverlay, { paddingBottom: insets.bottom + 10 }]}> 
-				<GlassCard style={styles.panelCard}>
-					{loading ? (
-						<View style={styles.loadingWrap}>
-							<ActivityIndicator color={colors.primary} />
-							<Text style={styles.loadingText}>Cargando flota...</Text>
-						</View>
-					) : null}
+				{activeTab !== 'fleet' ? (
+					<GlassCard style={styles.panelCard}>
+						{loading ? (
+							<View style={styles.loadingWrap}>
+								<ActivityIndicator color={colors.primary} />
+								<Text style={styles.loadingText}>Cargando flota...</Text>
+							</View>
+						) : null}
 
-					{!loading && activeTab === 'fleet' ? (
-						<View style={styles.panelSection}>
-							{selectedVehicle ? (
-								<View style={styles.selectedVehicleCard}>
-									<View style={styles.selectedVehicleHeader}>
-										<Text style={styles.selectedVehicleTitle}>{selectedVehicle.vehicle_id}</Text>
-										<StatusPill label={getVehicleStatusLabel(selectedVehicle.status)} tone={statusTone(selectedVehicle.status)} />
-									</View>
-									<Text style={styles.infoLine}>IMEI: {selectedVehicle.imei || 'sin IMEI'}</Text>
-									<Text style={styles.infoLine}>Coordenadas: {formatCoordinate(selectedVehicle.lat)}, {formatCoordinate(selectedVehicle.lng)}</Text>
-								</View>
-							) : null}
-
-							<FlatList
-								data={listedVehicles}
-								keyExtractor={(item) => item.vehicle_id}
-								renderItem={({ item }) => (
-									<Pressable onPress={() => focusVehicle(item)} style={styles.vehicleRow}>
-										<View>
-											<Text style={styles.vehicleId}>{item.vehicle_id}</Text>
-											<Text style={styles.vehicleMeta}>{item.imei || 'sin IMEI'}</Text>
-										</View>
-										<StatusPill label={getVehicleStatusLabel(item.status)} tone={statusTone(item.status)} />
-									</Pressable>
-								)}
-								ListEmptyComponent={<Text style={styles.empty}>No hay mas vehiculos en la lista.</Text>}
-								style={styles.list}
-							/>
-						</View>
-					) : null}
-
-					{!loading && activeTab === 'alerts' ? (
+						{!loading && activeTab === 'alerts' ? (
 						<View style={styles.panelSection}>
 							<Text style={styles.sectionTitle}>Alertas operativas</Text>
 							<FlatList
@@ -337,7 +375,7 @@ export function AdminDashboardScreen() {
 								keyExtractor={(item) => item.id}
 								ListEmptyComponent={<Text style={styles.empty}>No hay alertas recientes en esta sesion.</Text>}
 								renderItem={({ item }) => (
-									<View style={styles.alertItem}>
+									<Pressable onPress={() => focusVehicleByID(item.vehicleId)} style={styles.alertItem}>
 										<View style={styles.alertHeader}>
 											<Text style={styles.alertType}>{item.type}</Text>
 											<StatusPill label={item.type} tone={alertTone(item.type)} />
@@ -345,14 +383,15 @@ export function AdminDashboardScreen() {
 										<Text style={styles.vehicleMeta}>Vehiculo: {item.vehicleId}</Text>
 										<Text style={styles.vehicleMeta}>{item.message}</Text>
 										<Text style={styles.alertDate}>{formatDate(item.detectedAt)}</Text>
-									</View>
+										<Text style={styles.alertHint}>Toca para enfocar en mapa</Text>
+									</Pressable>
 								)}
 								style={styles.list}
 							/>
 						</View>
-					) : null}
+						) : null}
 
-					{!loading && activeTab === 'profile' ? (
+						{!loading && activeTab === 'profile' ? (
 						<View style={styles.panelSection}>
 							<Text style={styles.sectionTitle}>Perfil administrador</Text>
 							<Text style={styles.infoLine}>Usuario: {session?.username || 'admin'}</Text>
@@ -365,8 +404,9 @@ export function AdminDashboardScreen() {
 								<Text style={styles.logoutText}>Cerrar sesion</Text>
 							</Pressable>
 						</View>
-					) : null}
-				</GlassCard>
+						) : null}
+					</GlassCard>
+				) : null}
 
 				<View style={styles.bottomBar}>
 					<Pressable onPress={() => setActiveTab('fleet')} style={[styles.tabButton, activeTab === 'fleet' && styles.tabButtonActive]}>
@@ -523,7 +563,8 @@ const styles = StyleSheet.create({
 	},
 	markerWrap: {
 		alignItems: 'center',
-		justifyContent: 'center'
+		justifyContent: 'center',
+		overflow: 'visible'
 	},
 	marker: {
 		width: 34,
@@ -539,11 +580,10 @@ const styles = StyleSheet.create({
 		borderColor: '#0f172a'
 	},
 	clusterWrap: {
-		minWidth: 42,
-		height: 42,
-		paddingHorizontal: 10,
-		borderRadius: 21,
-		backgroundColor: colors.primaryDark,
+		minWidth: 52,
+		height: 52,
+		paddingHorizontal: 8,
+		borderRadius: 26,
 		borderWidth: 2,
 		borderColor: '#ffffff',
 		alignItems: 'center',
@@ -556,8 +596,19 @@ const styles = StyleSheet.create({
 	},
 	clusterText: {
 		color: '#ffffff',
-		fontSize: 13,
+		fontSize: 16,
+		lineHeight: 18,
 		fontWeight: '900'
+	},
+	vehicleDetailOverlay: {
+		position: 'absolute',
+		left: 12,
+		right: 12,
+		zIndex: 30,
+		elevation: 10
+	},
+	vehicleDetailCard: {
+		padding: 12
 	},
 	bottomOverlay: {
 		position: 'absolute',
@@ -603,6 +654,19 @@ const styles = StyleSheet.create({
 		gap: 8,
 		marginBottom: 6
 	},
+	selectedVehicleHeaderRight: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: 8
+	},
+	closeDetailButton: {
+		width: 26,
+		height: 26,
+		borderRadius: 13,
+		backgroundColor: '#f1f5f9',
+		alignItems: 'center',
+		justifyContent: 'center'
+	},
 	selectedVehicleTitle: {
 		color: colors.text,
 		fontSize: 15,
@@ -615,23 +679,6 @@ const styles = StyleSheet.create({
 	},
 	list: {
 		maxHeight: 190
-	},
-	vehicleRow: {
-		borderWidth: 1,
-		borderColor: colors.border,
-		borderRadius: 14,
-		backgroundColor: '#ffffff',
-		padding: 10,
-		marginBottom: 8,
-		flexDirection: 'row',
-		justifyContent: 'space-between',
-		alignItems: 'center',
-		gap: 10
-	},
-	vehicleId: {
-		color: colors.text,
-		fontSize: 14,
-		fontWeight: '800'
 	},
 	vehicleMeta: {
 		color: colors.textMuted,
@@ -660,6 +707,12 @@ const styles = StyleSheet.create({
 	alertDate: {
 		color: colors.textMuted,
 		marginTop: 6
+	},
+	alertHint: {
+		color: colors.primaryDark,
+		marginTop: 6,
+		fontWeight: '700',
+		fontSize: 11
 	},
 	empty: {
 		color: colors.textMuted,
