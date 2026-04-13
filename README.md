@@ -11,20 +11,21 @@ Sistema distribuido de monitoreo GPS de flotas en tiempo real: frontend React, m
 ## Tabla de contenidos
 
 1. [Inicio rápido](#inicio-rápido)
-2. [Capturas de pantalla](#capturas-de-pantalla)
-3. [Servicios y accesos](#servicios-y-accesos)
-4. [Diagrama de arquitectura](#diagrama-de-arquitectura)
-5. [Estructura del repositorio](#estructura-del-repositorio)
-6. [Prototipo móvil para conductores](#prototipo-móvil-para-conductores)
-7. [APIs principales](#apis-principales)
-8. [Tolerancia a fallos y resiliencia](#tolerancia-a-fallos-y-resiliencia)
-9. [Transacciones y consistencia](#transacciones-y-consistencia)
-10. [Variables de entorno](#variables-de-entorno)
-11. [Pruebas unitarias](#pruebas-unitarias)
-12. [Justificación técnica](#justificación-técnica)
-13. [Desafíos y soluciones](#desafíos-y-soluciones)
-14. [Qué habría hecho con más tiempo](#qué-habría-hecho-con-más-tiempo)
-15. [Reporte de IA](#reporte-de-ia)
+2. [Make: qué es e instalación](#make-qué-es-e-instalación)
+3. [Capturas de pantalla](#capturas-de-pantalla)
+4. [Servicios y accesos](#servicios-y-accesos)
+5. [Diagrama de arquitectura](#diagrama-de-arquitectura)
+6. [Estructura del repositorio](#estructura-del-repositorio)
+7. [Prototipo móvil para conductores](#prototipo-móvil-para-conductores)
+8. [APIs principales](#apis-principales)
+9. [Tolerancia a fallos y resiliencia](#tolerancia-a-fallos-y-resiliencia)
+10. [Transacciones y consistencia](#transacciones-y-consistencia)
+11. [Variables de entorno](#variables-de-entorno)
+12. [Pruebas unitarias](#pruebas-unitarias)
+13. [Justificación técnica](#justificación-técnica)
+14. [Desafíos y soluciones](#desafíos-y-soluciones)
+15. [Qué habría hecho con más tiempo](#qué-habría-hecho-con-más-tiempo)
+16. [Reporte de IA](#reporte-de-ia)
 
 ---
 
@@ -48,6 +49,14 @@ make doctor
 
 # 3. Levantar todos los servicios
 make up
+```
+
+### Alternativa sin `make` (un solo comando)
+
+Si no tienes `make` instalado, puedes levantar todo con este comando unico:
+
+```bash
+[ -f .env ] || cp .env.example .env; docker compose --env-file .env -f deployments/docker-compose.yml up --build -d
 ```
 
 El stack incluye: Frontend, Keycloak, Vehicle Service, Ingestion Service, WebSocket Service, Redis, PostgreSQL, ClickHouse, Superset y Nginx gateway.
@@ -85,6 +94,98 @@ make down DOWN_ARGS="--volumes --remove-orphans --rmi local"
 | `make restart SERVICE=clickhouse` | Reinicia un servicio |
 | `make build` | Rebuild de imágenes |
 | `make env-init` | Crea `.env` local desde `.env.example` |
+
+---
+
+## Make: qué es e instalación
+
+`make` es una herramienta de automatización que ejecuta tareas definidas en un archivo `Makefile`.
+En este proyecto se usa para simplificar operaciones frecuentes, por ejemplo:
+
+- `make up`
+- `make down`
+- `make logs SERVICE=all`
+- `make doctor`
+
+### Verificar si ya está instalado
+
+```bash
+make --version
+```
+
+Si el comando responde con versión, ya está disponible en tu sistema.
+
+### Instalación por sistema operativo
+
+**macOS**
+
+Opción recomendada (herramientas oficiales de desarrollo de Apple):
+
+```bash
+xcode-select --install
+```
+
+También puedes usar Homebrew:
+
+```bash
+brew install make
+```
+
+Links oficiales:
+
+- Apple Developer (Xcode Command Line Tools): https://developer.apple.com/xcode/resources/
+- Homebrew: https://brew.sh/
+
+**Ubuntu / Debian**
+
+```bash
+sudo apt update && sudo apt install -y make
+```
+
+Links oficiales:
+
+- Ubuntu Packages (make): https://packages.ubuntu.com/search?keywords=make
+- Debian Packages (make): https://packages.debian.org/search?keywords=make
+
+**Fedora**
+
+```bash
+sudo dnf install -y make
+```
+
+Link oficial:
+
+- Fedora Packages: https://packages.fedoraproject.org/
+
+**RHEL / CentOS**
+
+```bash
+sudo yum install -y make
+```
+
+Links oficiales:
+
+- Red Hat documentation: https://access.redhat.com/documentation/
+- Rocky Linux docs (dnf/yum): https://docs.rockylinux.org/
+
+**Windows**
+
+Opciones recomendadas:
+
+1. Usar WSL (recomendado para flujos tipo Linux/Docker).
+2. Usar MSYS2 o Chocolatey.
+
+Links oficiales:
+
+- WSL (Microsoft): https://learn.microsoft.com/windows/wsl/install
+- MSYS2: https://www.msys2.org/
+- Chocolatey: https://chocolatey.org/
+
+### Referencias oficiales de GNU Make
+
+- Sitio oficial: https://www.gnu.org/software/make/
+- Manual oficial: https://www.gnu.org/software/make/manual/make.html
+- Descargas oficiales: https://ftp.gnu.org/gnu/make/
 
 ---
 
