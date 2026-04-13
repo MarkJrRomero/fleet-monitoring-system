@@ -4,6 +4,25 @@ import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { usePageSeo } from '../../../shared/hooks/usePageSeo';
 import { isAuthenticated, loginViaApi } from '../services/authService';
 
+const GENERIC_LOGIN_ERROR = 'No fue posible iniciar sesion. Intenta nuevamente.';
+
+function sanitizeLoginError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return GENERIC_LOGIN_ERROR;
+  }
+
+  const normalized = error.message.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return GENERIC_LOGIN_ERROR;
+  }
+
+  if (normalized.length > 140) {
+    return GENERIC_LOGIN_ERROR;
+  }
+
+  return normalized;
+}
+
 export function LoginPage() {
   usePageSeo({
     title: 'SMTF | Inicio de sesion',
@@ -30,7 +49,7 @@ export function LoginPage() {
       await loginViaApi(username, password);
       window.location.href = '/';
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Usuario o contrasena invalidos.');
+      setError(sanitizeLoginError(error));
     } finally {
       setLoading(false);
     }

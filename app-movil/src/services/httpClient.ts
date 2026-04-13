@@ -31,6 +31,32 @@ export class ApiServiceError extends Error {
   }
 }
 
+const MAX_HUMAN_ERROR_LENGTH = 140;
+
+function sanitizeHumanMessage(message: string | undefined, fallbackMessage: string): string {
+  if (!message) {
+    return fallbackMessage;
+  }
+
+  const normalized = message.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return fallbackMessage;
+  }
+
+  const lower = normalized.toLowerCase();
+  if (
+    normalized.length > MAX_HUMAN_ERROR_LENGTH ||
+    lower.includes('exception') ||
+    lower.includes('stack') ||
+    lower.includes('<html') ||
+    lower.includes('traceback')
+  ) {
+    return fallbackMessage;
+  }
+
+  return normalized;
+}
+
 function asApiErrorPayload(value: unknown): ApiErrorPayload | undefined {
   if (!value || typeof value !== 'object') {
     return undefined;
@@ -81,15 +107,46 @@ export async function parseServiceError(response: Response, fallbackMessage: str
 
 export function formatServiceError(error: unknown, fallbackMessage: string): string {
   if (error instanceof ApiServiceError) {
-    const suffixParts = [error.code, error.requestId].filter(Boolean);
-    if (suffixParts.length === 0) {
-      return error.message;
+    if (error.status === 401) {
+      return 'Tu sesion no es valida o expiro. Inicia sesion nuevamente.';
     }
-    return `${error.message} (${suffixParts.join(' | ')})`;
+
+    if (error.status === 403) {
+      return 'No tienes permisos para realizar esta accion.';
+    }
+
+    if (error.status === 404) {
+      return 'El recurso solicitado no fue encontrado.';
+    }
+
+    if (error.status === 500 || error.status === 502 || error.status === 503 || error.status === 504) {
+      return 'Los servicios estan temporalmente no disponibles. Intenta nuevamente en unos segundos.';
+    }
+
+    if (error.status === 429) {
+      return 'Se alcanzo el limite de solicitudes. Espera un momento e intenta de nuevo.';
+    }
+
+    return sanitizeHumanMessage(error.message, fallbackMessage);
   }
 
   if (error instanceof Error) {
-    return error.message;
+    const message = error.message.toLowerCase();
+
+    if (error.name === 'AbortError') {
+      return 'La solicitud tardo demasiado y fue cancelada. Intenta nuevamente.';
+    }
+
+    if (
+      message.includes('failed to fetch') ||
+      message.includes('networkerror') ||
+      message.includes('load failed') ||
+      message.includes('cors')
+    ) {
+      return 'No fue posible conectar con el servidor. Verifica tu red e intenta nuevamente.';
+    }
+
+    return sanitizeHumanMessage(error.message, fallbackMessage);
   }
 
   return fallbackMessage;
