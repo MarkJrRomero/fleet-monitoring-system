@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<clickhouse>
+  <profiles>
+    <default>
+      <!-- Limite por consulta para evitar abortos por picos de agregacion -->
+      <max_memory_usage>1500000000</max_memory_usage>
+      <!-- Permite volcar GROUP BY/SORT a disco cuando excede memoria en RAM -->
+      <max_bytes_before_external_group_by>256000000</max_bytes_before_external_group_by>
+      <max_bytes_before_external_sort>256000000</max_bytes_before_external_sort>
+    </default>
+  </profiles>
+</clickhouse>

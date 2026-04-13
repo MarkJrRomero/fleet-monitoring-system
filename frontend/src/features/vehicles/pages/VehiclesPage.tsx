@@ -1,0 +1,314 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Car, RefreshCw, Trash2 } from 'lucide-react';
+import { clearSession, fetchWithAuth, getUsername } from '../../auth/services/authService';
+import { getVehicleStatusBadgeClasses, getVehicleStatusLabel } from '../../dashboard/utils/vehicleStatus';
+import { getMainNavItems } from '../../../shared/config/navItems';
+import { VEHICLE_BASE_URL } from '../../../shared/config/runtime';
+import { formatApiError, parseApiError } from '../../../shared/api/http';
+import { StatusBadge } from '../../../shared/components/StatusBadge';
+import { StyledSelect, type SelectOption } from '../../../shared/components/StyledSelect';
+import { usePageSeo } from '../../../shared/hooks/usePageSeo';
+import { AppShell } from '../../../shared/layouts/AppShell';
+import { confirmAction, showError, showSuccess } from '../../../shared/ui/alerts';
+
+type Vehicle = {
+  vehicle_id: string;
+  imei: string;
+  lat: number;
+  lng: number;
+  status: string;
+  created_at?: string;
+};
+
+type VehiclesResponse = {
+  vehicles: Vehicle[];
+  total: number;
+};
+
+type DeleteScope = 'vehicle_only' | 'with_history';
+
+const STATUS_FILTER_ALL = 'all';
+
+export function VehiclesPage() {
+  usePageSeo({
+    title: 'SMTF | Vehiculos',
+    description: 'Listado y estado operativo de los vehiculos de la flota.'
+  });
+
+  const username = getUsername();
+  const pageSize = 10;
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [deletingVehicleIDs, setDeletingVehicleIDs] = useState<Record<string, boolean>>({});
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState(STATUS_FILTER_ALL);
+
+  const loadVehicles = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/vehicles`);
+      if (!response.ok) {
+        throw await parseApiError(response, 'No fue posible cargar vehiculos');
+      }
+      const data = (await response.json()) as VehiclesResponse;
+      setVehicles(data.vehicles ?? []);
+    } catch {
+      setVehicles([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadVehicles();
+  }, []);
+
+  const sortedVehicles = useMemo(
+    () => [...vehicles].sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '')).reverse(),
+    [vehicles]
+  );
+
+  const statusOptions = useMemo<SelectOption[]>(() => {
+    const uniqueStatuses = [...new Set(vehicles.map((vehicle) => vehicle.status).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+    return [
+      { value: STATUS_FILTER_ALL, label: 'Estado: Todos' },
+      ...uniqueStatuses.map((status) => ({
+        value: status,
+        label: `Estado: ${getVehicleStatusLabel(status)}`
+      }))
+    ];
+  }, [vehicles]);
+
+  const filteredVehicles = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    return sortedVehicles.filter((vehicle) => {
+      const matchesSearch =
+        query.length === 0 ||
+        vehicle.vehicle_id.toLowerCase().includes(query) ||
+        (vehicle.imei || '').toLowerCase().includes(query);
+
+      const matchesStatus = statusFilter === STATUS_FILTER_ALL || vehicle.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [searchTerm, sortedVehicles, statusFilter]);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredVehicles.length / pageSize)), [filteredVehicles.length]);
+
+  const paginatedVehicles = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return filteredVehicles.slice(start, start + pageSize);
+  }, [filteredVehicles, pageIndex]);
+
+  useEffect(() => {
+    setPageIndex((prev) => Math.min(prev, totalPages - 1));
+  }, [totalPages]);
+
+  const onLogout = () => {
+    clearSession();
+    window.location.href = '/login';
+  };
+
+  const deleteVehicle = async (vehicleID: string, scope: DeleteScope) => {
+    const isVehicleOnly = scope === 'vehicle_only';
+    const confirmed = await confirmAction({
+      title: isVehicleOnly ? 'Eliminar solo vehiculo' : 'Eliminar vehiculo y su historico',
+      text: isVehicleOnly
+        ? `Se eliminara ${vehicleID} del catalogo, pero se conservara el historico de GPS.`
+        : `Se eliminara ${vehicleID} del catalogo y tambien su historico de GPS persistido.`,
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar'
+    });
+
+    if (!confirmed) return;
+
+    setDeletingVehicleIDs((prev) => ({ ...prev, [vehicleID]: true }));
+    try {
+      const response = await fetchWithAuth(`${VEHICLE_BASE_URL}/api/v1/vehicles/${vehicleID}?scope=${scope}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        throw await parseApiError(response, 'No fue posible eliminar el vehiculo');
+      }
+
+      setVehicles((prev) => prev.filter((item) => item.vehicle_id !== vehicleID));
+      await showSuccess(
+        'Vehiculo eliminado',
+        isVehicleOnly
+          ? `${vehicleID} fue eliminado del catalogo y se conservo su historico.`
+          : `${vehicleID} fue eliminado junto con su historico.`
+      );
+    } catch (error) {
+      await showError('Error eliminando vehiculo', formatApiError(error, 'Intenta nuevamente en unos segundos.'));
+    } finally {
+      setDeletingVehicleIDs((prev) => {
+        const next = { ...prev };
+        delete next[vehicleID];
+        return next;
+      });
+    }
+  };
+
+  return (
+    <>
+      <AppShell
+        headerRight={
+          <div className="flex items-center">
+            <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-on-surface">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-700">
+                <Car className="h-4 w-4" />
+              </span>
+              <div className="leading-tight">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-800">Vehiculos</p>
+                <p className="text-sm font-bold">{vehicles.length}</p>
+              </div>
+            </div>
+          </div>
+        }
+        navItems={getMainNavItems('/vehiculos')}
+        onLogout={onLogout}
+        title="Modulo de vehiculos"
+        username={username}
+      >
+        <section className="rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-headline text-xl font-bold">Tabla de vehiculos</h2>
+            <div className="flex gap-2">
+              <button
+                aria-label="Refrescar vehiculos"
+                className="rounded-lg border border-outline-variant/30 bg-surface p-2 text-sm text-on-surface-variant transition hover:bg-surface-container"
+                onClick={() => void loadVehicles()}
+                type="button"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-4 grid grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="min-w-0">
+              <input
+                className="w-full rounded-xl border border-outline-variant/30 bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+                placeholder="Buscar por ID o IMEI"
+                value={searchTerm}
+                onChange={(event) => {
+                  setSearchTerm(event.target.value);
+                  setPageIndex(0);
+                }}
+              />
+            </div>
+
+            <div className="min-w-0">
+              <StyledSelect
+                options={statusOptions}
+                value={statusFilter}
+                onChange={(value) => {
+                  setStatusFilter(value);
+                  setPageIndex(0);
+                }}
+                isSearchable={false}
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-outline-variant/20">
+            <table className="w-full min-w-[760px] text-left">
+              <thead className="bg-surface-container-low">
+                <tr>
+                  <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">ID</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">IMEI</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Estado</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Lat</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Lng</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Creado</th>
+                  <th className="px-4 py-3 text-xs uppercase tracking-widest text-on-surface-variant">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant/10 bg-surface">
+                {paginatedVehicles.map((vehicle) => (
+                  <tr key={vehicle.vehicle_id}>
+                    <td className="px-4 py-3 text-sm font-semibold">{vehicle.vehicle_id}</td>
+                    <td className="px-4 py-3 text-sm">{vehicle.imei || '--'}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <StatusBadge
+                        className={getVehicleStatusBadgeClasses(vehicle.status)}
+                        label={getVehicleStatusLabel(vehicle.status)}
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-sm">{vehicle.lat.toFixed(5)}</td>
+                    <td className="px-4 py-3 text-sm">{vehicle.lng.toFixed(5)}</td>
+                    <td className="px-4 py-3 text-sm text-on-surface-variant">
+                      {vehicle.created_at ? new Date(vehicle.created_at).toLocaleString() : '--'}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={Boolean(deletingVehicleIDs[vehicle.vehicle_id])}
+                          onClick={() => void deleteVehicle(vehicle.vehicle_id, 'vehicle_only')}
+                          type="button"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {deletingVehicleIDs[vehicle.vehicle_id] ? 'Eliminando...' : 'Solo vehiculo'}
+                        </button>
+
+                        <button
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={Boolean(deletingVehicleIDs[vehicle.vehicle_id])}
+                          onClick={() => void deleteVehicle(vehicle.vehicle_id, 'with_history')}
+                          type="button"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {deletingVehicleIDs[vehicle.vehicle_id] ? 'Eliminando...' : 'Vehiculo + historico'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredVehicles.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-8 text-center text-sm text-on-surface-variant" colSpan={7}>
+                      No hay vehiculos que coincidan con los filtros actuales.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-on-surface-variant">
+            <span>
+              Mostrando {filteredVehicles.length === 0 ? 0 : pageIndex * pageSize + 1} - {Math.min((pageIndex + 1) * pageSize, filteredVehicles.length)} de {filteredVehicles.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded-lg border border-outline-variant/30 bg-surface px-3 py-1.5 disabled:opacity-50"
+                disabled={pageIndex === 0}
+                onClick={() => setPageIndex((prev) => Math.max(0, prev - 1))}
+                type="button"
+              >
+                Anterior
+              </button>
+              <span>
+                Pagina {totalPages === 0 ? 0 : pageIndex + 1} de {totalPages}
+              </span>
+              <button
+                className="rounded-lg border border-outline-variant/30 bg-surface px-3 py-1.5 disabled:opacity-50"
+                disabled={pageIndex >= totalPages - 1}
+                onClick={() => setPageIndex((prev) => Math.min(totalPages - 1, prev + 1))}
+                type="button"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        </section>
+
+      </AppShell>
+    </>
+  );
+}

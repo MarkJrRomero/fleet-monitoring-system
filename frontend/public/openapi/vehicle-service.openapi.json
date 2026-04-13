@@ -1,0 +1,400 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Fleet Monitoring - Vehicle Service",
+    "version": "1.0.0",
+    "description": "Catalogo de vehiculos, simulacion global, simulacion dedicada del conductor y utilidades administrativas."
+  },
+  "servers": [
+    {
+      "url": "/vehicle",
+      "description": "Vehicle Service via Nginx gateway"
+    }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Estado del servicio" },
+    { "name": "Vehicles", "description": "CRUD y catalogo de vehiculos" },
+    { "name": "Simulation", "description": "Simulacion global de flota" },
+    { "name": "Driver Simulation", "description": "Simulacion dedicada del vehiculo del conductor" },
+    { "name": "Administration", "description": "Operaciones administrativas y mantenimiento" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "status": { "type": "integer" },
+              "service": { "type": "string" },
+              "request_id": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "Vehicle": {
+        "type": "object",
+        "required": ["vehicle_id", "imei", "lat", "lng", "status"],
+        "properties": {
+          "vehicle_id": { "type": "string", "example": "SIM-00023" },
+          "imei": { "type": "string", "example": "860000000000023" },
+          "lat": { "type": "number", "format": "double", "example": 4.711 },
+          "lng": { "type": "number", "format": "double", "example": -74.0721 },
+          "status": { "type": "string", "example": "online" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "VehiclesResponse": {
+        "type": "object",
+        "properties": {
+          "vehicles": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Vehicle" }
+          },
+          "total": { "type": "integer", "example": 120 }
+        }
+      },
+      "CreateVehicleRequest": {
+        "type": "object",
+        "required": ["vehicle_id", "imei", "lat", "lng"],
+        "properties": {
+          "vehicle_id": { "type": "string", "example": "SIM-00150" },
+          "imei": { "type": "string", "example": "860000000001500" },
+          "lat": { "type": "number", "format": "double", "example": 4.66 },
+          "lng": { "type": "number", "format": "double", "example": -74.08 },
+          "status": { "type": "string", "example": "online" }
+        }
+      },
+      "BulkCreateRequest": {
+        "type": "object",
+        "properties": {
+          "count": { "type": "integer", "minimum": 1, "maximum": 1000, "example": 200 }
+        }
+      },
+      "BulkCreateResponse": {
+        "type": "object",
+        "properties": {
+          "created": { "type": "integer", "example": 200 },
+          "total": { "type": "integer", "example": 321 }
+        }
+      },
+      "UpdateVehicleRequest": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "example": "stopped" }
+        }
+      },
+      "SimulationStatus": {
+        "type": "object",
+        "properties": {
+          "running": { "type": "boolean", "example": true },
+          "selected_count": { "type": "integer", "example": 50 },
+          "tick_ms": { "type": "integer", "example": 1400 },
+          "requests_sent": { "type": "integer", "example": 512 },
+          "errors_count": { "type": "integer", "example": 3 },
+          "started_at": { "type": "string", "format": "date-time" },
+          "last_error": { "type": "string" }
+        }
+      },
+      "SimulationStartRequest": {
+        "type": "object",
+        "properties": {
+          "selected_count": { "type": "integer", "example": 50 },
+          "tick_ms": { "type": "integer", "example": 1400 }
+        }
+      },
+      "DriverSimulationStartRequest": {
+        "type": "object",
+        "properties": {
+          "tick_ms": { "type": "integer", "example": 4000 }
+        }
+      },
+      "SimulationTraceItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "vehicle_id": { "type": "string" },
+          "kind": { "type": "string", "example": "normal" },
+          "result": { "type": "string", "example": "ok" },
+          "note": { "type": "string" },
+          "status_code": { "type": "integer", "example": 201 },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SimulationTraceResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SimulationTraceItem" }
+          }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Verificar estado del servicio",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Servicio disponible"
+          }
+        }
+      }
+    },
+    "/api/v1/vehicles": {
+      "get": {
+        "tags": ["Vehicles"],
+        "summary": "Listar vehiculos",
+        "responses": {
+          "200": {
+            "description": "Catalogo de vehiculos",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VehiclesResponse" }
+              }
+            }
+          },
+          "401": { "description": "Token invalido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Vehicles"],
+        "summary": "Crear vehiculo",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateVehicleRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Vehiculo creado" },
+          "400": { "description": "Payload invalido" },
+          "409": { "description": "Conflicto de vehicle_id o imei" }
+        }
+      }
+    },
+    "/api/v1/vehicles/bulk": {
+      "post": {
+        "tags": ["Vehicles"],
+        "summary": "Crear vehiculos en bloque",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BulkCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Vehiculos creados",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BulkCreateResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vehicles/{vehicleId}": {
+      "parameters": [
+        {
+          "name": "vehicleId",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        }
+      ],
+      "get": {
+        "tags": ["Vehicles"],
+        "summary": "Consultar un vehiculo",
+        "responses": {
+          "200": {
+            "description": "Vehiculo encontrado",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Vehicle" }
+              }
+            }
+          },
+          "404": { "description": "Vehiculo no encontrado" }
+        }
+      },
+      "patch": {
+        "tags": ["Vehicles"],
+        "summary": "Actualizar estado de vehiculo",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateVehicleRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Vehiculo actualizado" },
+          "404": { "description": "Vehiculo no encontrado" }
+        }
+      },
+      "delete": {
+        "tags": ["Vehicles"],
+        "summary": "Eliminar vehiculo",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["vehicle_only", "with_history"],
+              "default": "with_history"
+            }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Vehiculo eliminado" },
+          "404": { "description": "Vehiculo no encontrado" }
+        }
+      }
+    },
+    "/api/v1/simulation/status": {
+      "get": {
+        "tags": ["Simulation"],
+        "summary": "Consultar estado de simulacion global",
+        "responses": {
+          "200": {
+            "description": "Estado actual",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SimulationStatus" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/simulation/trace": {
+      "get": {
+        "tags": ["Simulation"],
+        "summary": "Consultar trazas recientes",
+        "responses": {
+          "200": {
+            "description": "Ultimas transmisiones",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SimulationTraceResponse" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/simulation/start": {
+      "post": {
+        "tags": ["Simulation"],
+        "summary": "Iniciar simulacion global",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SimulationStartRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulacion iniciada",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SimulationStatus" } } }
+          },
+          "409": { "description": "La simulacion ya estaba ejecutandose" }
+        }
+      }
+    },
+    "/api/v1/simulation/stop": {
+      "post": {
+        "tags": ["Simulation"],
+        "summary": "Detener simulacion global",
+        "responses": {
+          "200": {
+            "description": "Simulacion detenida",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SimulationStatus" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/driver-simulation/status": {
+      "get": {
+        "tags": ["Driver Simulation"],
+        "summary": "Consultar simulacion dedicada del conductor",
+        "responses": {
+          "200": {
+            "description": "Estado actual",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SimulationStatus" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/driver-simulation/start": {
+      "post": {
+        "tags": ["Driver Simulation"],
+        "summary": "Iniciar simulacion del conductor",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/DriverSimulationStartRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulacion dedicada iniciada",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SimulationStatus" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/driver-simulation/stop": {
+      "post": {
+        "tags": ["Driver Simulation"],
+        "summary": "Detener simulacion del conductor",
+        "responses": {
+          "200": {
+            "description": "Simulacion dedicada detenida",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SimulationStatus" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clear-db": {
+      "post": {
+        "tags": ["Administration"],
+        "summary": "Limpiar base de datos y recrear vehiculo reservado",
+        "responses": {
+          "200": {
+            "description": "Base de datos limpiada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "vehicles": { "type": "integer", "example": 0 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

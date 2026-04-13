@@ -1,0 +1,193 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Fleet Monitoring - Ingestion Service",
+    "version": "1.0.0",
+    "description": "Ingesta de telemetria, enriquecimiento de posicion, deteccion de alertas y catalogo basico consultado por el pipeline."
+  },
+  "servers": [
+    {
+      "url": "/ingestion",
+      "description": "Ingestion Service via Nginx gateway"
+    }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Estado del servicio" },
+    { "name": "Vehicles", "description": "Operaciones auxiliares de catalogo para ingesta" },
+    { "name": "Ingestion", "description": "Recepcion de eventos GPS" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "status": { "type": "integer" },
+              "service": { "type": "string" },
+              "request_id": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "Vehicle": {
+        "type": "object",
+        "properties": {
+          "vehicle_id": { "type": "string", "example": "SIM-00023" },
+          "imei": { "type": "string", "example": "860000000000023" },
+          "lat": { "type": "number", "example": 4.71 },
+          "lng": { "type": "number", "example": -74.07 },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "VehiclesResponse": {
+        "type": "object",
+        "properties": {
+          "vehicles": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Vehicle" }
+          },
+          "total": { "type": "integer", "example": 120 }
+        }
+      },
+      "BulkCreateVehiclesRequest": {
+        "type": "object",
+        "properties": {
+          "count": { "type": "integer", "minimum": 1, "maximum": 1000, "example": 100 }
+        }
+      },
+      "BulkCreateVehiclesResponse": {
+        "type": "object",
+        "properties": {
+          "created": { "type": "integer", "example": 100 },
+          "total": { "type": "integer", "example": 250 }
+        }
+      },
+      "GpsIngestRequest": {
+        "type": "object",
+        "required": ["vehicle_id", "lat", "lng", "timestamp"],
+        "properties": {
+          "vehicle_id": { "type": "string", "example": "SIM-00023" },
+          "lat": { "type": "number", "example": 4.711 },
+          "lng": { "type": "number", "example": -74.0721 },
+          "speed_kmh": { "type": "number", "example": 42.5 },
+          "status": { "type": "string", "example": "online" },
+          "panic_button": { "type": "boolean", "example": false },
+          "timestamp": {
+            "description": "Acepta RFC3339 o unix epoch.",
+            "oneOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "integer" }
+            ]
+          }
+        }
+      },
+      "IngestResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "example": "almacenado" },
+          "vehicle_id": { "type": "string", "example": "SIM-00023" },
+          "recorded_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Verificar estado del servicio",
+        "security": [],
+        "responses": {
+          "200": { "description": "Servicio disponible" }
+        }
+      }
+    },
+    "/api/v1/vehicles": {
+      "get": {
+        "tags": ["Vehicles"],
+        "summary": "Listar vehiculos desde el pipeline de ingesta",
+        "responses": {
+          "200": {
+            "description": "Catalogo de vehiculos",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VehiclesResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vehicles/bulk": {
+      "post": {
+        "tags": ["Vehicles"],
+        "summary": "Crear vehiculos sinteticos para pruebas de ingesta",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BulkCreateVehiclesRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Vehiculos creados",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BulkCreateVehiclesResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingestion/gps": {
+      "post": {
+        "tags": ["Ingestion"],
+        "summary": "Ingerir posicion GPS",
+        "description": "Recibe telemetria, detecta duplicados, enriquece ubicacion, publica eventos y genera alertas de detenido, exceso de velocidad y panico.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GpsIngestRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Evento almacenado",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IngestResponse" }
+              }
+            }
+          },
+          "202": {
+            "description": "Duplicado ignorado",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IngestResponse" }
+              }
+            }
+          },
+          "400": { "description": "Payload invalido" },
+          "500": { "description": "Error interno del pipeline" }
+        }
+      }
+    }
+  }
+}

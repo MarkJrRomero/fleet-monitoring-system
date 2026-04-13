@@ -1,0 +1,75 @@
+{
+  "realm": "fleet-monitoring",
+  "enabled": true,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 86400,
+  "ssoSessionMaxLifespan": 86400,
+  "clientSessionIdleTimeout": 86400,
+  "clientSessionMaxLifespan": 86400,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "Gestor de flota" },
+      { "name": "driver", "description": "Conductor de vehículo" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "fleet-web-client",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "webOrigins": ["*"],
+      "redirectUris": ["http://localhost:3000/*"],
+      "rootUrl": "http://localhost:3000"
+    },
+    {
+      "clientId": "ingestion-service",
+      "enabled": true,
+      "serviceAccountsEnabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "tu-secreto-muy-seguro"
+    },
+    {
+      "clientId": "fleet-service-auth",
+      "enabled": true,
+      "serviceAccountsEnabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "fleet-service-auth-secret"
+    }
+  ],
+  "users": [
+    {
+      "username": "admin_test",
+      "enabled": true,
+      "email": "admin@telemetria.com",
+      "firstName": "Ad",
+      "lastName": "min",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["admin"]
+    },
+    {
+      "username": "driver_test",
+      "enabled": true,
+      "email": "driver@telemetria.com",
+      "firstName": "Conductor",
+      "lastName": "Demo",
+      "attributes": {
+        "vehicle_id": ["SIM-00001"]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "driver123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["driver"]
+    }
+  ]
+}
