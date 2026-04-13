@@ -9,8 +9,7 @@ import {
   Text,
   View
 } from 'react-native';
-import ClusteredMapView from 'react-native-map-clustering';
-import { Marker, Region } from 'react-native-maps';
+import MapView, { Marker, Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassCard } from '../components/GlassCard';
 import { StatusPill } from '../components/StatusPill';
@@ -28,6 +27,7 @@ const DEFAULT_REGION: Region = {
 	latitudeDelta: 5.5,
 	longitudeDelta: 5.5
 };
+const WS_FLUSH_MS = 1000;
 
 type BottomTab = 'fleet' | 'alerts' | 'profile';
 
@@ -58,32 +58,11 @@ function formatCoordinate(value: number | undefined): string {
 	return parsed.toFixed(5);
 }
 
-function clusterCount(cluster: any): number {
-	const raw = cluster?.properties?.point_count;
-	if (typeof raw === 'number' && Number.isFinite(raw)) {
-		return raw;
-	}
-	const parsed = Number(raw);
-	return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function clusterColorByCount(count: number): string {
-	if (count >= 120) {
-		return '#b91c1c';
-	}
-	if (count >= 60) {
-		return '#c2410c';
-	}
-	if (count >= 20) {
-		return '#0f766e';
-	}
-	return '#0d9488';
-}
-
 export function AdminDashboardScreen() {
 	const { session, signOut } = useAuth();
 	const insets = useSafeAreaInsets();
 	const mapRef = useRef<any>(null);
+	const pendingPositionUpdatesRef = useRef<Map<string, PositionEvent>>(new Map());
 
 	const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 	const [alerts, setAlerts] = useState<LocalAlert[]>([]);
@@ -129,29 +108,59 @@ export function AdminDashboardScreen() {
 	}, [session?.accessToken]);
 
 	useEffect(() => {
-		const disconnectPositions = connectPositions(session?.accessToken, {
-			onOpen: () => setPositionsSocketConnected(true),
-			onClose: () => setPositionsSocketConnected(false),
-			onError: () => setPositionsSocketConnected(false),
-			onMessage: (event) => {
-				setVehicles((current) => {
-					const index = current.findIndex((vehicle) => vehicle.vehicle_id === event.vehicle_id);
+		const flushPositionUpdates = () => {
+			const pendingUpdates = pendingPositionUpdatesRef.current;
+			if (pendingUpdates.size === 0) {
+				return;
+			}
 
+			setVehicles((current) => {
+				let changed = false;
+				const next = [...current];
+
+				for (const [vehicleId, event] of pendingUpdates) {
+					const index = next.findIndex((vehicle) => vehicle.vehicle_id === vehicleId);
 					if (index === -1) {
-						return current;
+						continue;
 					}
 
-					const next = [...current];
+					changed = true;
 					next[index] = {
 						...next[index],
 						lat: event.lat,
 						lng: event.lng,
 						status: event.status || next[index].status
 					};
-					return next;
+				}
+
+				pendingUpdates.clear();
+				return changed ? next : current;
+			});
+		};
+
+		const disconnectPositions = connectPositions(session?.accessToken, {
+			onOpen: () => setPositionsSocketConnected(true),
+			onClose: () => setPositionsSocketConnected(false),
+			onError: () => setPositionsSocketConnected(false),
+			onMessage: (event) => {
+				const lat = toNumber(event.lat);
+				const lng = toNumber(event.lng);
+				if (lat === null || lng === null) {
+					return;
+				}
+				if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+					return;
+				}
+
+				pendingPositionUpdatesRef.current.set(event.vehicle_id, {
+					...event,
+					lat,
+					lng
 				});
 			}
 		});
+
+		const flushTimer = setInterval(flushPositionUpdates, WS_FLUSH_MS);
 
 		const disconnectAlerts = connectAlerts(session?.accessToken, {
 			onOpen: () => setAlertsSocketConnected(true),
@@ -172,6 +181,8 @@ export function AdminDashboardScreen() {
 		});
 
 		return () => {
+			clearInterval(flushTimer);
+			pendingPositionUpdatesRef.current.clear();
 			disconnectPositions();
 			disconnectAlerts();
 		};
@@ -244,37 +255,9 @@ export function AdminDashboardScreen() {
 
 	return (
 		<View style={styles.container}>
-			<ClusteredMapView
+			<MapView
 				ref={mapRef}
-				animationEnabled
-				tracksViewChanges={false}
-				clusterColor={colors.primaryDark}
-				clusterTextColor="#ffffff"
 				initialRegion={DEFAULT_REGION}
-				minPoints={2}
-				radius={45}
-				preserveClusterPressBehavior={false}
-				renderCluster={(cluster: any) => (
-					// react-native-map-clustering entrega la posicion en geometry.coordinates
-					// [lng, lat], no en cluster.coordinate.
-					// El conteo viene en properties.point_count(_abbreviated).
-					// Ajuste visual para Android: tamano y color dinamico por volumen.
-					<Marker
-						key={`cluster-${cluster.properties?.cluster_id ?? cluster.id}`}
-						anchor={{ x: 0.5, y: 0.5 }}
-						coordinate={{
-							latitude: cluster.geometry.coordinates[1],
-							longitude: cluster.geometry.coordinates[0]
-						}}
-						onPress={cluster.onPress}
-					>
-						<View style={[styles.clusterWrap, { backgroundColor: clusterColorByCount(clusterCount(cluster)) }]}>
-							<Text style={styles.clusterText}>
-								{String(cluster.properties?.point_count_abbreviated ?? cluster.properties?.point_count ?? '0')}
-							</Text>
-						</View>
-					</Marker>
-				)}
 				style={StyleSheet.absoluteFill}
 			>
 				{mappableVehicles.map((vehicle) => {
@@ -289,6 +272,7 @@ export function AdminDashboardScreen() {
 						coordinate={{ latitude: lat, longitude: lng }}
 						key={vehicle.vehicle_id}
 						anchor={{ x: 0.5, y: 0.5 }}
+						tracksViewChanges={false}
 						onPress={() => focusVehicle(vehicle)}
 						title={vehicle.vehicle_id}
 						description={`Estado: ${getVehicleStatusLabel(vehicle.status)}`}
@@ -307,7 +291,7 @@ export function AdminDashboardScreen() {
 					</Marker>
 					);
 				})}
-			</ClusteredMapView>
+			</MapView>
 
 			{activeTab === 'fleet' && selectedVehicle ? (
 				<View style={[styles.vehicleDetailOverlay, { bottom: insets.bottom + 86 }]}> 
@@ -397,7 +381,7 @@ export function AdminDashboardScreen() {
 							<Text style={styles.infoLine}>Usuario: {session?.username || 'admin'}</Text>
 							<Text style={styles.infoLine}>Rol: administrador</Text>
 							<Text style={styles.infoLine}>Vehiculos visibles: {vehicles.length}</Text>
-							<Text style={styles.infoLine}>Clusters activos: si</Text>
+							<Text style={styles.infoLine}>Clusters activos: no</Text>
 
 							<Pressable onPress={signOut} style={styles.logoutButton}>
 								<Ionicons color="#ffffff" name="log-out-outline" size={18} />

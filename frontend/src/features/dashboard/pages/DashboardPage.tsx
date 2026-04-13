@@ -705,6 +705,13 @@ export function DashboardPage() {
     [allVehicles, selectedVehicleId]
   );
 
+  const clusteredVehicles = useMemo(() => {
+    if (!selectedVehicleId) {
+      return allVehicles;
+    }
+    return allVehicles.filter((vehicle) => vehicle.vehicle_id !== selectedVehicleId);
+  }, [allVehicles, selectedVehicleId]);
+
   const mapCenter = useMemo<[number, number]>(() => [4.7110, -74.0721], []);
 
   const onAlertsScroll = (event: React.UIEvent<HTMLDivElement>) => {
@@ -863,7 +870,7 @@ export function DashboardPage() {
                   spiderfyOnMaxZoom={false}
                   showCoverageOnHover={false}
                 >
-                  {allVehicles.map((vehicle) => (
+                  {clusteredVehicles.map((vehicle) => (
                     <AnimatedVehicleMarker
                       key={vehicle.vehicle_id}
                       selected={false}
