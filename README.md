@@ -1,5 +1,9 @@
 # SMTF — Sistema de Monitoreo y Telemetría de Flotas
 
+## Video demo de la app
+
+- https://www.youtube.com/watch?v=jpIYiF0ptnQ
+
 Sistema distribuido de monitoreo GPS de flotas en tiempo real: frontend React, microservicios Go, capa analítica ClickHouse + Superset y prototipo móvil React Native.
 
 ---
@@ -19,7 +23,8 @@ Sistema distribuido de monitoreo GPS de flotas en tiempo real: frontend React, m
 11. [Pruebas unitarias](#pruebas-unitarias)
 12. [Justificación técnica](#justificación-técnica)
 13. [Desafíos y soluciones](#desafíos-y-soluciones)
-14. [Reporte de IA](#reporte-de-ia)
+14. [Qué habría hecho con más tiempo](#qué-habría-hecho-con-más-tiempo)
+15. [Reporte de IA](#reporte-de-ia)
 
 ---
 
@@ -604,6 +609,14 @@ cd services/vehicle-service   && go test ./...
 - Control dinámico de transiciones: durante `movestart/zoomstart` se desactiva transición de markers y se reactiva en `moveend/zoomend`, eliminando el efecto de marcadores arrastrados.
 
 **Resultado:** interacción estable en selección de vehículos, movimiento suave en telemetría en tiempo real, y reducción significativa del artefacto de pantalla gris en flujos de navegación del dashboard.
+
+---
+
+## Qué habría hecho con más tiempo
+
+- Resolver por completo el issue de Nominatim para geocodificación inversa de direcciones (mejor manejo de rate limits, cache por celdas y estrategia de fallback para evitar respuestas incompletas o vacías).
+- Mejorar el diseño visual general del frontend y del prototipo móvil para elevar consistencia, jerarquía visual y experiencia de uso.
+- Aumentar la cobertura de pruebas automatizadas (unitarias, integración y flujos críticos end-to-end) para reducir regresiones y fortalecer la calidad en cada despliegue.
 
 ---
 
