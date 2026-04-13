@@ -43,6 +43,22 @@ const AUTH_CONFIG = {
 
 const TOKEN_URL = `${AUTH_CONFIG.baseUrl}/realms/${AUTH_CONFIG.realm}/protocol/openid-connect/token`;
 
+function toHumanLoginError(status?: number): string {
+  if (status === 400 || status === 401) {
+    return 'Usuario o contrasena incorrectos. Verifica tus datos e intenta nuevamente.';
+  }
+
+  if (status === 429) {
+    return 'Demasiados intentos. Espera un momento antes de volver a intentar.';
+  }
+
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return 'El servicio de inicio de sesion no esta disponible temporalmente. Intenta nuevamente en unos minutos.';
+  }
+
+  return 'No fue posible iniciar sesion en este momento. Intenta nuevamente.';
+}
+
 function parseJwt(token: string): JwtPayload | null {
   try {
     const [, payload] = token.split('.');
@@ -187,6 +203,10 @@ export function hasRealmRole(role: string) {
 export async function loginViaApi(username: string, password: string) {
   clearSession();
 
+  if (!username.trim() || !password.trim()) {
+    throw new Error('Ingresa tu usuario y contrasena para continuar.');
+  }
+
   const params = new URLSearchParams();
   params.append('grant_type', 'password');
   params.append('client_id', AUTH_CONFIG.clientId);
@@ -204,17 +224,13 @@ export async function loginViaApi(username: string, password: string) {
       body: params
     });
   } catch (error) {
-    throw new Error(
-      formatApiError(error, 'No fue posible conectar con el servicio de autenticacion.')
-    );
+    throw new Error(formatApiError(error, 'No pudimos conectarnos al servidor. Revisa tu internet e intenta nuevamente.'));
   }
 
   if (!response.ok) {
     clearSession();
-    if (response.status === 400 || response.status === 401) {
-      throw await parseApiError(response, 'Credenciales invalidas');
-    }
-    throw await parseApiError(response, 'No fue posible iniciar sesion. Intenta nuevamente.');
+    const parsedError = await parseApiError(response, toHumanLoginError(response.status));
+    throw new Error(toHumanLoginError(parsedError.status));
   }
 
   const data = (await response.json()) as TokenResponse;

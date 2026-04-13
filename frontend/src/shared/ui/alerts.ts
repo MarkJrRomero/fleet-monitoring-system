@@ -24,6 +24,35 @@ const baseConfig = {
   reverseButtons: true
 } as const;
 
+const MAX_ERROR_LENGTH = 160;
+
+function sanitizeErrorText(text?: string): string | undefined {
+  if (!text) {
+    return undefined;
+  }
+
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized.length > MAX_ERROR_LENGTH) {
+    return 'Ocurrio un problema temporal. Intenta nuevamente.';
+  }
+
+  const lower = normalized.toLowerCase();
+  if (
+    lower.includes('exception') ||
+    lower.includes('stack') ||
+    lower.includes('traceback') ||
+    lower.includes('<html')
+  ) {
+    return 'Ocurrio un problema temporal. Intenta nuevamente.';
+  }
+
+  return normalized;
+}
+
 export async function confirmAction(options: ConfirmOptions): Promise<boolean> {
   const result = await Swal.fire({
     ...baseConfig,
@@ -53,7 +82,7 @@ export async function showError(title: string, text?: string): Promise<void> {
     ...baseConfig,
     icon: 'error',
     title,
-    text,
+    text: sanitizeErrorText(text),
     confirmButtonText: 'Entendido'
   });
 }

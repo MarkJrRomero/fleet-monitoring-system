@@ -31,6 +31,32 @@ export class ApiHttpError extends Error {
   }
 }
 
+const MAX_HUMAN_ERROR_LENGTH = 140;
+
+function sanitizeHumanMessage(message: string | undefined, fallbackMessage: string): string {
+  if (!message) {
+    return fallbackMessage;
+  }
+
+  const normalized = message.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return fallbackMessage;
+  }
+
+  const lower = normalized.toLowerCase();
+  if (
+    normalized.length > MAX_HUMAN_ERROR_LENGTH ||
+    lower.includes('exception') ||
+    lower.includes('stack') ||
+    lower.includes('<html') ||
+    lower.includes('traceback')
+  ) {
+    return fallbackMessage;
+  }
+
+  return normalized;
+}
+
 function asApiErrorPayload(value: unknown): ApiErrorPayload | undefined {
   if (!value || typeof value !== 'object') {
     return undefined;
@@ -98,11 +124,19 @@ export function formatApiError(error: unknown, fallbackMessage: string): string 
       return 'Los servicios estan temporalmente no disponibles. Intenta nuevamente en unos segundos.';
     }
 
-    const suffixParts = [error.code, error.requestId].filter(Boolean);
-    if (suffixParts.length === 0) {
-      return error.message;
+    if (error.status === 500) {
+      return 'Tuvimos un problema interno al procesar la solicitud. Intenta nuevamente.';
     }
-    return `${error.message} (${suffixParts.join(' | ')})`;
+
+    if (error.status === 429) {
+      return 'Se alcanzo el limite de solicitudes. Espera un momento e intenta de nuevo.';
+    }
+
+    if (error.status === 400) {
+      return sanitizeHumanMessage(error.message, fallbackMessage);
+    }
+
+    return sanitizeHumanMessage(error.message, fallbackMessage);
   }
 
   if (error instanceof Error) {
@@ -121,7 +155,7 @@ export function formatApiError(error: unknown, fallbackMessage: string): string 
       return 'No fue posible conectar con el servidor. Verifica tu red o que el gateway este activo.';
     }
 
-    return error.message;
+    return sanitizeHumanMessage(error.message, fallbackMessage);
   }
 
   return fallbackMessage;

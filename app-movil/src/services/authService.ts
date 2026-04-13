@@ -9,6 +9,22 @@ type KeycloakErrorResponse = {
   error_description?: string;
 };
 
+function toHumanLoginError(status?: number): string {
+  if (status === 400 || status === 401) {
+    return 'Usuario o contrasena incorrectos. Verifica tus datos e intenta nuevamente.';
+  }
+
+  if (status === 429) {
+    return 'Demasiados intentos. Espera un momento antes de volver a intentar.';
+  }
+
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return 'El servicio de inicio de sesion no esta disponible temporalmente. Intenta nuevamente en unos minutos.';
+  }
+
+  return 'No fue posible iniciar sesion en este momento. Intenta nuevamente.';
+}
+
 function decodeJwtPayload(token: string): Record<string, unknown> {
   try {
     const [, payload] = token.split('.');
@@ -72,6 +88,10 @@ async function parseKeycloakError(response: Response): Promise<string> {
 export async function login(username: string, password: string): Promise<Session> {
   await clearSession();
 
+  if (!username.trim() || !password.trim()) {
+    throw new Error('Ingresa tu usuario y contrasena para continuar.');
+  }
+
   const params = new URLSearchParams();
   params.append('grant_type', 'password');
   params.append('client_id', AUTH_CLIENT_ID);
@@ -84,14 +104,27 @@ export async function login(username: string, password: string): Promise<Session
     username
   });
 
-  const response = await fetch(AUTH_TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json'
-    },
-    body: params.toString()
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(AUTH_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json'
+      },
+      body: params.toString()
+    });
+  } catch (error) {
+    console.error('[Auth] Error de red durante login', {
+      tokenUrl: AUTH_TOKEN_URL,
+      clientId: AUTH_CLIENT_ID,
+      username,
+      error
+    });
+    await clearSession();
+    throw new Error('No pudimos conectarnos al servidor. Revisa tu internet e intenta nuevamente.');
+  }
 
   if (!response.ok) {
     const reason = await parseKeycloakError(response);
@@ -105,11 +138,7 @@ export async function login(username: string, password: string): Promise<Session
     });
     await clearSession();
 
-    if (response.status === 400 || response.status === 401) {
-      throw new Error(`Credenciales invalidas (${reason})`);
-    }
-
-    throw new Error(`No fue posible iniciar sesion (${response.status}): ${reason}`);
+    throw new Error(toHumanLoginError(response.status));
   }
 
   const tokenData = (await response.json()) as TokenResponse;

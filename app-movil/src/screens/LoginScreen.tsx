@@ -5,6 +5,25 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme/colors';
 
+const GENERIC_LOGIN_ERROR = 'No fue posible iniciar sesion. Intenta nuevamente.';
+
+function sanitizeLoginError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return GENERIC_LOGIN_ERROR;
+  }
+
+  const normalized = error.message.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return GENERIC_LOGIN_ERROR;
+  }
+
+  if (normalized.length > 140) {
+    return GENERIC_LOGIN_ERROR;
+  }
+
+  return normalized;
+}
+
 export function LoginScreen() {
   const { signIn } = useAuth();
   const [username, setUsername] = useState('driver_test');
@@ -16,12 +35,18 @@ export function LoginScreen() {
   const onSubmit = async () => {
     setLoading(true);
     setError('');
+
+    if (!username.trim() || !password.trim()) {
+      setLoading(false);
+      setError('Ingresa tu usuario y contrasena para continuar.');
+      return;
+    }
+
     try {
       await signIn(username, password);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Usuario o contrasena invalidos';
       console.error('[LoginScreen] Error al iniciar sesion', err);
-      setError(message);
+      setError(sanitizeLoginError(err));
     } finally {
       setLoading(false);
     }

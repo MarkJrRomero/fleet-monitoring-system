@@ -51,6 +51,8 @@ make doctor
 make up
 ```
 
+Importante: despues de ejecutar `make up`, espera 1-2 minutos para que todos los servicios terminen de iniciar correctamente (bases de datos, Keycloak, gateway y APIs).
+
 ### Alternativa sin `make` (por sistema operativo)
 
 Si no tienes `make` instalado, puedes levantar todo con un solo comando segun tu terminal/SO:
