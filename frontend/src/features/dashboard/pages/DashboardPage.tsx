@@ -198,9 +198,13 @@ function AnimatedVehicleMarker({
       {selected ? (
         <CircleMarker
           center={displayPosition}
-          fillColor={markerColor}
-          fillOpacity={Math.max(0.06, radarOpacity * 0.22)}
-          pathOptions={{ color: markerColor, weight: 2.2, opacity: Math.max(0.2, radarOpacity) }}
+          pathOptions={{
+            color: markerColor,
+            fillColor: markerColor,
+            fillOpacity: Math.max(0.06, radarOpacity * 0.22),
+            weight: 2.2,
+            opacity: Math.max(0.2, radarOpacity)
+          }}
           radius={radarRadius}
           interactive={false}
         />
@@ -208,10 +212,10 @@ function AnimatedVehicleMarker({
 
       <CircleMarker
         center={displayPosition}
-        fillColor={markerColor}
-        fillOpacity={vehicle.isReporting ? 0.95 : 0.72}
         pathOptions={{
           color: markerColor,
+          fillColor: markerColor,
+          fillOpacity: vehicle.isReporting ? 0.95 : 0.72,
           weight: selected ? 3 : 2.1,
           opacity: 1
         }}

@@ -130,18 +130,6 @@ export function DriverSimulatorScreen() {
   const canSendNow = netInfo.isConnected !== false && !tunnelMode;
 
   useEffect(() => {
-    if (!syncingQueue) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      setSyncingQueue(false);
-    }, 10000);
-
-    return () => clearTimeout(timer);
-  }, [syncingQueue]);
-
-  useEffect(() => {
     let active = true;
 
     async function bootstrapQueue() {
@@ -274,18 +262,14 @@ export function DriverSimulatorScreen() {
       return;
     }
 
-    let active = true;
     setSyncingQueue(true);
 
     void sendQueuedEvent(retryableEvent).finally(() => {
-      if (active) {
+      const delay = retryableEvent.panicButton ? 0 : 800;
+      setTimeout(() => {
         setSyncingQueue(false);
-      }
+      }, delay);
     });
-
-    return () => {
-      active = false;
-    };
   }, [canSendNow, localQueue, queueLoaded, session?.accessToken, syncingQueue]);
 
   const toggleDriverSimulation = async () => {
