@@ -85,10 +85,9 @@ export function DriverAlertsScreen() {
             renderItem={({ item }) => (
               <View style={styles.alertCard}>
                 <View style={styles.alertCardHeader}>
-                  <Text style={styles.alertType}>{item.type}</Text>
-                  <StatusPill label={item.source === 'panic_local' ? 'Local' : 'Tiempo real'} tone="warning" />
+                  <Text style={styles.alertMessage} numberOfLines={2}>{item.message}</Text>
+                  <StatusPill label={item.type} tone={getAlertTone(item.type)} />
                 </View>
-                <Text style={styles.alertMessage}>{item.message}</Text>
                 <Text style={styles.alertMeta}>{item.vehicleId} • {formatDate(item.detectedAt)}</Text>
               </View>
             )}
@@ -99,6 +98,13 @@ export function DriverAlertsScreen() {
       </View>
     </View>
   );
+}
+
+function getAlertTone(type: string): 'danger' | 'warning' | 'neutral' {
+  const t = type.toLowerCase();
+  if (t.includes('panico') || t.includes('velocidad')) return 'danger';
+  if (t.includes('detenido')) return 'warning';
+  return 'neutral';
 }
 
 function fromBackendAlert(event: AlertEvent): LocalAlert {
@@ -200,7 +206,8 @@ const styles = StyleSheet.create({
   alertMessage: {
     color: colors.text,
     fontWeight: '600',
-    fontSize: 13
+    fontSize: 13,
+    flex: 1
   },
   alertMeta: {
     color: colors.textMuted,

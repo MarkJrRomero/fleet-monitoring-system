@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { gsap } from 'gsap';
+import L from 'leaflet';
 import { AlertTriangle, Car, CirclePause, MapPin, Gauge, Wifi, WifiOff, X } from 'lucide-react';
-import { CircleMarker, MapContainer, TileLayer } from 'react-leaflet';
+import { MapContainer, Marker, TileLayer } from 'react-leaflet';
 import { useMap } from 'react-leaflet/hooks';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'leaflet/dist/leaflet.css';
@@ -76,7 +77,6 @@ type DashboardVehicle = {
 };
 
 const VEHICLES_PAGE_SIZE = 30;
-const VEHICLE_PIN_RADIUS = 9;
 const STATUS_PRIORITY_OPTIONS: SelectOption[] = [
   { value: 'all', label: 'Prioridad: Todos' },
   { value: 'overspeed', label: 'Primero Exceso de velocidad' },
@@ -112,23 +112,62 @@ function FocusMapOnVehicle({ target }: { target: [number, number] | null }) {
       return;
     }
 
+    map.invalidateSize();
+
     const currentZoom = map.getZoom();
     const currentCenter = map.getCenter();
     const distance = map.distance(currentCenter, target);
     const focusZoom = 18;
 
+    if (distance < 5 && currentZoom >= 17.8) {
+      return;
+    }
+
     if (currentZoom < 17.8) {
       map.flyTo(target, focusZoom, { duration: 1.3, easeLinearity: 0.14 });
-      return;
-    }
-
-    if (distance > 220) {
+    } else if (distance > 220) {
       map.flyTo(target, focusZoom, { duration: 1.15, easeLinearity: 0.16 });
-      return;
+    } else {
+      map.panTo(target, { animate: true, duration: 1.05, easeLinearity: 0.1 });
     }
 
-    map.panTo(target, { animate: true, duration: 1.05, easeLinearity: 0.1 });
+    map.once('moveend', () => {
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 50);
+    });
   }, [map, target]);
+
+  return null;
+}
+
+function MarkerTransitionController() {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+
+    const disableMarkerTransition = () => {
+      container.classList.add('map-is-moving');
+    };
+
+    const enableMarkerTransition = () => {
+      container.classList.remove('map-is-moving');
+    };
+
+    map.on('movestart', disableMarkerTransition);
+    map.on('zoomstart', disableMarkerTransition);
+    map.on('moveend', enableMarkerTransition);
+    map.on('zoomend', enableMarkerTransition);
+
+    return () => {
+      map.off('movestart', disableMarkerTransition);
+      map.off('zoomstart', disableMarkerTransition);
+      map.off('moveend', enableMarkerTransition);
+      map.off('zoomend', enableMarkerTransition);
+      container.classList.remove('map-is-moving');
+    };
+  }, [map]);
 
   return null;
 }
@@ -142,87 +181,52 @@ function AnimatedVehicleMarker({
   selected: boolean;
   onMarkerClick: () => void;
 }) {
-  const [displayPosition, setDisplayPosition] = useState<[number, number]>([vehicle.lat, vehicle.lng]);
-  const [radarPhase, setRadarPhase] = useState(0);
-  const currentPositionRef = useRef({ lat: vehicle.lat, lng: vehicle.lng });
-  const tweenRef = useRef<gsap.core.Tween | null>(null);
   const markerColor = getVehicleMapColor(vehicle.status);
 
-  useEffect(() => {
-    const from = currentPositionRef.current;
-    const deltaLat = Math.abs(vehicle.lat - from.lat);
-    const deltaLng = Math.abs(vehicle.lng - from.lng);
-    if (deltaLat < 0.0000001 && deltaLng < 0.0000001) {
-      return;
-    }
+  const icon = useMemo(() => {
+    const html = `
+      <div style="position: relative; width: 18px; height: 18px;">
+        ${selected
+          ? `<div style="
+              position: absolute;
+              inset: 0;
+              background-color: ${markerColor};
+              border-radius: 9999px;
+              animation: pulse-radar 1.2s infinite ease-out;
+            "></div>`
+          : ''}
+        <div style="
+          position: absolute;
+          inset: 0;
+          background-color: ${markerColor};
+          border: ${selected ? '3px' : '2px'} solid white;
+          border-radius: 9999px;
+          box-shadow: 0 2px 5px rgba(0,0,0,0.35);
+          opacity: ${vehicle.isReporting ? '1' : '0.72'};
+        "></div>
+      </div>
+    `;
 
-    tweenRef.current?.kill();
-    tweenRef.current = gsap.to(currentPositionRef.current, {
-      lat: vehicle.lat,
-      lng: vehicle.lng,
-      duration: 1.45,
-      ease: 'sine.out',
-      overwrite: 'auto',
-      onUpdate: () => {
-        setDisplayPosition([currentPositionRef.current.lat, currentPositionRef.current.lng]);
-      }
+    return L.divIcon({
+      html,
+      className: 'fleet-vehicle-marker',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9]
     });
-
-    return () => {
-      tweenRef.current?.kill();
-    };
-  }, [vehicle.lat, vehicle.lng]);
-
-  useEffect(() => {
-    if (!selected) {
-      setRadarPhase(0);
-      return;
-    }
-
-    const startedAt = Date.now();
-    const timer = window.setInterval(() => {
-      const elapsed = (Date.now() - startedAt) % 1600;
-      setRadarPhase(elapsed / 1600);
-    }, 50);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [selected]);
-
-  const radarRadius = VEHICLE_PIN_RADIUS + 4 + radarPhase * 11;
-  const radarOpacity = 0.66 * (1 - radarPhase);
+  }, [markerColor, selected, vehicle.isReporting]);
 
   return (
-    <>
-      {selected ? (
-        <CircleMarker
-          center={displayPosition}
-          pathOptions={{
-            color: markerColor,
-            fillColor: markerColor,
-            fillOpacity: Math.max(0.06, radarOpacity * 0.22),
-            weight: 2.2,
-            opacity: Math.max(0.2, radarOpacity)
-          }}
-          radius={radarRadius}
-          interactive={false}
-        />
-      ) : null}
-
-      <CircleMarker
-        center={displayPosition}
-        pathOptions={{
-          color: markerColor,
-          fillColor: markerColor,
-          fillOpacity: vehicle.isReporting ? 0.95 : 0.72,
-          weight: selected ? 3 : 2.1,
-          opacity: 1
-        }}
-        radius={VEHICLE_PIN_RADIUS}
-        eventHandlers={{ click: onMarkerClick }}
-      />
-    </>
+    <Marker
+      position={[vehicle.lat, vehicle.lng]}
+      icon={icon}
+      zIndexOffset={selected ? 1000 : 0}
+      eventHandlers={{
+        click: (e) => {
+          L.DomEvent.stopPropagation(e.originalEvent);
+          onMarkerClick();
+        }
+      }}
+    />
   );
 }
 
@@ -696,19 +700,10 @@ export function DashboardPage() {
     return summary;
   }, [allVehicles]);
 
-  const markers = useMemo(() => {
-    if (!selectedVehicleId) {
-      return allVehicles;
-    }
-
-    const selected = allVehicles.find((vehicle) => vehicle.vehicle_id === selectedVehicleId);
-    if (!selected) {
-      return allVehicles;
-    }
-
-    const rest = allVehicles.filter((vehicle) => vehicle.vehicle_id !== selectedVehicleId);
-    return [...rest, selected];
-  }, [allVehicles, selectedVehicleId]);
+  const selectedVehicleForOverlay = useMemo(
+    () => (selectedVehicleId ? allVehicles.find((v) => v.vehicle_id === selectedVehicleId) ?? null : null),
+    [allVehicles, selectedVehicleId]
+  );
 
   const mapCenter = useMemo<[number, number]>(() => [4.7110, -74.0721], []);
 
@@ -744,34 +739,6 @@ export function DashboardPage() {
     () => (selectedVehicleId ? allVehicles.find((v) => v.vehicle_id === selectedVehicleId) ?? null : null),
     [selectedVehicleId, allVehicles]
   );
-
-  useEffect(() => {
-    if (!selectedVehicleId) {
-      return;
-    }
-
-    const selectedVehicle = allVehicles.find((vehicle) => vehicle.vehicle_id === selectedVehicleId);
-    if (!selectedVehicle) {
-      return;
-    }
-
-    const nextPosition: [number, number] = [selectedVehicle.lat, selectedVehicle.lng];
-
-    setFocusedPosition((current) => {
-      if (!current) {
-        return nextPosition;
-      }
-
-      const movedLat = Math.abs(current[0] - nextPosition[0]) > 0.000001;
-      const movedLng = Math.abs(current[1] - nextPosition[1]) > 0.000001;
-
-      if (!movedLat && !movedLng) {
-        return current;
-      }
-
-      return nextPosition;
-    });
-  }, [allVehicles, selectedVehicleId]);
 
   const onMarkerClick = (vehicle: DashboardVehicle) => {
     setSelectedVehicleId(vehicle.vehicle_id);
@@ -883,6 +850,7 @@ export function DashboardPage() {
             <div className="relative h-full min-h-0 overflow-hidden rounded-xl border border-slate-100 xl:h-full">
               <MapContainer center={mapCenter} className="h-full w-full" scrollWheelZoom zoom={12}>
                 <FocusMapOnVehicle target={focusedPosition} />
+                <MarkerTransitionController />
                 <TileLayer
                   attribution='&copy; OpenStreetMap contributors &copy; CARTO'
                   url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
@@ -895,15 +863,24 @@ export function DashboardPage() {
                   spiderfyOnMaxZoom={false}
                   showCoverageOnHover={false}
                 >
-                  {markers.map((vehicle) => (
+                  {allVehicles.map((vehicle) => (
                     <AnimatedVehicleMarker
                       key={vehicle.vehicle_id}
-                      selected={selectedVehicleId === vehicle.vehicle_id}
+                      selected={false}
                       vehicle={vehicle}
                       onMarkerClick={() => onMarkerClick(vehicle)}
                     />
                   ))}
                 </MarkerClusterGroup>
+
+                {selectedVehicleForOverlay ? (
+                  <AnimatedVehicleMarker
+                    key={`overlay-${selectedVehicleForOverlay.vehicle_id}`}
+                    selected={true}
+                    vehicle={selectedVehicleForOverlay}
+                    onMarkerClick={() => onMarkerClick(selectedVehicleForOverlay)}
+                  />
+                ) : null}
               </MapContainer>
             </div>
 

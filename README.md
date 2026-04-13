@@ -590,6 +590,23 @@ cd services/vehicle-service   && go test ./...
 
 ---
 
+### 6. Inestabilidad visual en el mapa Leaflet (pins, pan/zoom y tiles)
+
+**Problema:** al seleccionar vehículos en el dashboard aparecían varios síntomas: jitter de pines al cambiar de selección, desfase visual entre mapa y marcadores durante pan/zoom, y zonas grises de tiles en movimientos encadenados.
+
+**Solución aplicada (implementada con apoyo de Gemini 3.1 + Copilot):**
+
+- Migración de pines SVG (`CircleMarker`) a `Marker` con `L.divIcon` HTML/CSS para estabilizar render y clustering.
+- Separación del vehículo seleccionado como overlay para evitar reorder masivo dentro de `MarkerClusterGroup`.
+- Bloqueo de propagación del click del marcador (`stopPropagation`) para evitar colisiones de interacción con el mapa base.
+- Validación anti-vuelo nulo en enfoque (`distance < 5` y zoom alto) para no disparar animaciones innecesarias.
+- Uso de `map.invalidateSize()` alrededor de la navegación (`flyTo`/`panTo`) para forzar recálculo y prevenir tiles incompletos.
+- Control dinámico de transiciones: durante `movestart/zoomstart` se desactiva transición de markers y se reactiva en `moveend/zoomend`, eliminando el efecto de marcadores arrastrados.
+
+**Resultado:** interacción estable en selección de vehículos, movimiento suave en telemetría en tiempo real, y reducción significativa del artefacto de pantalla gris en flujos de navegación del dashboard.
+
+---
+
 ## Reporte de IA
 
 ### Herramientas utilizadas
@@ -597,7 +614,7 @@ cd services/vehicle-service   && go test ./...
 - **GitHub Copilot** (VS Code) — asistente primario durante todo el desarrollo.
 - **Claude Sonnet 4.6** (vía GitHub Copilot Chat) — análisis arquitectónico, refactorizaciones complejas, documentación.
 - **Claude Opus 4.6** — revisión de patrones de diseño y estrategias de consistencia distribuida.
-- **Gemini** — generación del logo principal de la interfaz.
+- **Gemini 3.1** — soporte en diagnóstico del mapa Leaflet (tiles grises, bubbling y jitter de marcadores) y generación del logo principal de la interfaz.
 
 ### Tareas donde se apoyó en IA
 
@@ -612,6 +629,7 @@ cd services/vehicle-service   && go test ./...
 | Creación del prototipo de app móvil (navegación, screens, WebSocket hooks) | Copilot + Claude Sonnet |
 | Generación de datos falsos para el simulador de caos | Copilot |
 | Estrategia offline-first y optimización de batería | Claude Sonnet |
+| Diagnóstico y hardening del mapa Leaflet (overlay seleccionado, invalidateSize, control de transición en pan/zoom) | Copilot + Gemini 3.1 |
 
 ### Hallucinations / errores detectados y corrección Senior
 
