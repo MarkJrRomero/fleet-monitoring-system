@@ -51,12 +51,26 @@ make doctor
 make up
 ```
 
-### Alternativa sin `make` (un solo comando)
+### Alternativa sin `make` (por sistema operativo)
 
-Si no tienes `make` instalado, puedes levantar todo con este comando unico:
+Si no tienes `make` instalado, puedes levantar todo con un solo comando segun tu terminal/SO:
+
+**macOS / Linux (bash o zsh)**
 
 ```bash
 [ -f .env ] || cp .env.example .env; docker compose --env-file .env -f deployments/docker-compose.yml up --build -d
+```
+
+**Windows PowerShell**
+
+```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }; docker compose --env-file .env -f deployments/docker-compose.yml up --build -d
+```
+
+**Windows CMD**
+
+```bat
+if not exist .env copy .env.example .env && docker compose --env-file .env -f deployments\docker-compose.yml up --build -d
 ```
 
 El stack incluye: Frontend, Keycloak, Vehicle Service, Ingestion Service, WebSocket Service, Redis, PostgreSQL, ClickHouse, Superset y Nginx gateway.
